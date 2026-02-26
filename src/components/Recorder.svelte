@@ -17,9 +17,7 @@
   onMount(async () => {
     if (window.electron) {
       hotkeys = await window.electron.getHotkeys()
-      window.electron.onRecordingEvent((event) => {
-        recordedEvents = [...recordedEvents, event]
-      })
+      window.electron.onRecordingEvent((event) => { recordedEvents = [...recordedEvents, event] })
       window.electron.onHotkey((key) => {
         if (key === 'toggle-record') {
           if (state === 'idle') beginCountdown()
@@ -32,38 +30,26 @@
 
   function beginCountdown() {
     if (countdown === 0) { startRecording(); return }
-    state = 'countdown'
-    countdownValue = countdown
-    const cd = setInterval(() => {
-      countdownValue--
-      if (countdownValue <= 0) { clearInterval(cd); startRecording() }
-    }, 1000)
+    state = 'countdown'; countdownValue = countdown
+    const cd = setInterval(() => { countdownValue--; if (countdownValue <= 0) { clearInterval(cd); startRecording() } }, 1000)
   }
 
   async function startRecording() {
-    state = 'recording'
-    elapsed = 0
-    recordedEvents = []
+    state = 'recording'; elapsed = 0; recordedEvents = []
     timerInterval = setInterval(() => elapsed++, 1000)
     if (window.electron) await window.electron.startRecording()
   }
 
   async function stopRecording() {
-    clearInterval(timerInterval)
-    state = 'done'
+    clearInterval(timerInterval); state = 'done'
     if (window.electron) {
-      const result = await window.electron.stopRecording()
-      recordedEvents = result.events
-      duration = result.duration
-    } else {
-      duration = elapsed * 1000
-    }
-    macroName = `Macro ${new Date().toLocaleTimeString()}`
+      const r = await window.electron.stopRecording()
+      recordedEvents = r.events; duration = r.duration
+    } else { duration = elapsed * 1000 }
+    macroName = `MACRO_${Date.now().toString(36).toUpperCase()}`
   }
 
-  function discard() {
-    state = 'idle'; recordedEvents = []; macroName = ''; elapsed = 0
-  }
+  function discard() { state = 'idle'; recordedEvents = []; macroName = ''; elapsed = 0 }
 
   function saveMacro() {
     if (!macroName.trim()) return
@@ -72,7 +58,6 @@
   }
 
   function startListening(slot) { listeningFor = slot }
-
   function handleKeyCapture(e) {
     if (!listeningFor) return
     e.preventDefault()
@@ -87,23 +72,21 @@
     if (window.electron) window.electron.setHotkeys(hotkeys)
   }
 
-  function formatTime(s) {
-    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
-  }
+  function fmt(s) { return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` }
 
-  function eventLabel(ev) {
-    if (ev.type === 'mousemove') return `Move ${ev.x},${ev.y}`
-    if (ev.type === 'mousedown') return `↓ ${ev.button} click`
-    if (ev.type === 'mouseup') return `↑ ${ev.button} click`
-    if (ev.type === 'keydown') return `↓ ${ev.key}`
-    if (ev.type === 'keyup') return `↑ ${ev.key}`
+  function evLabel(ev) {
+    if (ev.type === 'mousemove') return `MOV ${ev.x},${ev.y}`
+    if (ev.type === 'mousedown') return `CLK↓ ${ev.button}`
+    if (ev.type === 'mouseup') return `CLK↑ ${ev.button}`
+    if (ev.type === 'keydown') return `KEY↓ ${ev.key}`
+    if (ev.type === 'keyup') return `KEY↑ ${ev.key}`
     return ev.type
   }
 
-  function eventBadgeClass(ev) {
-    if (ev.type === 'mousemove') return 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
-    if (ev.type.startsWith('mouse')) return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'
-    return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'
+  function evColor(ev) {
+    if (ev.type === 'mousemove') return 'var(--accent)'
+    if (ev.type.startsWith('mouse')) return 'var(--accent2)'
+    return 'var(--accent3)'
   }
 
   $: clicks = recordedEvents.filter(e => e.type === 'mousedown').length
@@ -113,166 +96,160 @@
 
 <svelte:window on:keydown={handleKeyCapture}/>
 
-<div class="h-full flex flex-col overflow-y-auto p-6 gap-5 bg-gray-50 dark:bg-gray-950 animate-fade-in">
+<div class="h-full flex flex-col overflow-y-auto p-6 gap-4 animate-scanin" style="background: var(--bg)">
 
-  <!-- Header -->
-  <div class="flex items-start justify-between">
-    <div>
-      <h1 class="text-xl font-bold text-gray-900 dark:text-white">Record Macro</h1>
-      <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Captures mouse movement, clicks & key presses</p>
-    </div>
+  <!-- Top bar -->
+  <div class="flex items-center justify-between">
+    <button on:click={() => dispatch('back')}
+      class="flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
+      style="color: var(--muted); font-family: var(--font-mono); border: 1px solid var(--border)"
+      on:mouseenter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
+      on:mouseleave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)' }}>
+      ◀ BACK
+    </button>
+    <h1 class="text-lg font-black tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-display); text-shadow: var(--glow)">
+      ⬤ RECORD
+    </h1>
     <button on:click={() => showSettings = !showSettings}
-      class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all
-        {showSettings
-          ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
-          : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'}">
-      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-      </svg>
-      Settings
+      class="text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
+      style="color: {showSettings ? 'var(--accent)' : 'var(--muted)'}; font-family: var(--font-mono); border: 1px solid {showSettings ? 'var(--accent)' : 'var(--border)'}">
+      CONFIG
     </button>
   </div>
 
   <!-- Settings -->
   {#if showSettings}
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 flex flex-col gap-5 animate-slide-up">
-
-      <!-- Hotkeys -->
-      <div>
-        <p class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Hotkeys</p>
-        <div class="flex flex-col gap-2">
-          {#each [['record','Start / Stop Recording'],['play','Play Macro'],['stop','Stop Playback']] as [slot, label]}
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-gray-700 dark:text-gray-300">{label}</span>
-              <button on:click={() => startListening(slot)}
-                class="px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all min-w-[100px] text-center
-                  {listeningFor === slot
-                    ? 'bg-indigo-500 text-white animate-pulse'
-                    : 'bg-gray-100 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30'}">
-                {listeningFor === slot ? 'Press key...' : hotkeys[slot] || 'None'}
-              </button>
-            </div>
-          {/each}
+    <div class="p-4 flex flex-col gap-4 animate-scanin" style="background: var(--bg2); border: 1px solid var(--border2)">
+      <p class="text-[9px] font-bold tracking-[4px] uppercase" style="color: var(--accent3); font-family: var(--font-mono)">◆ KEYBINDS</p>
+      {#each [['record','START/STOP REC'],['play','PLAY MACRO'],['stop','STOP PLAYBACK']] as [slot, label]}
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] tracking-widest" style="color: var(--muted); font-family: var(--font-mono)">{label}</span>
+          <button on:click={() => startListening(slot)}
+            class="px-3 py-1 text-[11px] font-bold tracking-widest transition-all min-w-[100px] text-center"
+            style="font-family: var(--font-mono); background: {listeningFor === slot ? 'var(--accent)' : 'var(--bg3)'}; color: {listeningFor === slot ? 'var(--bg)' : 'var(--accent)'}; border: 1px solid {listeningFor === slot ? 'var(--accent)' : 'var(--border)'}">
+            {listeningFor === slot ? 'PRESS KEY...' : hotkeys[slot] || 'NONE'}
+          </button>
         </div>
-      </div>
-
-      <!-- Countdown -->
-      <div>
-        <p class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Countdown Before Recording</p>
-        <div class="flex gap-2">
-          {#each [0,3,5,10] as val}
-            <button on:click={() => countdown = val}
-              class="px-4 py-2 rounded-lg text-sm font-bold transition-all
-                {countdown === val
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}">
-              {val === 0 ? 'Off' : `${val}s`}
-            </button>
-          {/each}
-        </div>
+      {/each}
+      <p class="text-[9px] font-bold tracking-[4px] uppercase mt-2" style="color: var(--accent3); font-family: var(--font-mono)">◆ COUNTDOWN</p>
+      <div class="flex gap-2">
+        {#each [0,3,5,10] as val}
+          <button on:click={() => countdown = val}
+            class="px-4 py-1.5 text-[11px] font-bold tracking-widest transition-all"
+            style="font-family: var(--font-mono); background: {countdown === val ? 'var(--accent)' : 'var(--bg3)'}; color: {countdown === val ? 'var(--bg)' : 'var(--muted)'}; border: 1px solid {countdown === val ? 'var(--accent)' : 'var(--border)'}">
+            {val === 0 ? 'OFF' : `${val}S`}
+          </button>
+        {/each}
       </div>
     </div>
   {/if}
 
-  <!-- Main card -->
-  <div class="flex-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl flex items-center justify-center min-h-[280px] overflow-hidden">
+  <!-- Main area -->
+  <div class="flex-1 flex items-center justify-center" style="background: var(--bg2); border: 1px solid var(--border)">
 
     {#if state === 'idle'}
-      <div class="flex flex-col items-center gap-6 animate-fade-in">
+      <div class="flex flex-col items-center gap-6">
         <div class="relative">
           <button on:click={beginCountdown}
-            class="w-24 h-24 rounded-full bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center transition-all hover:scale-105 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50">
-            <span class="w-8 h-8 rounded-full bg-white block"></span>
+            class="w-28 h-28 rounded-full flex items-center justify-center transition-all relative"
+            style="background: var(--bg3); border: 2px solid var(--accent); box-shadow: var(--glow)"
+            on:mouseenter={(e) => e.currentTarget.style.boxShadow = 'var(--glow), inset 0 0 30px rgba(0,0,0,0.3)'}
+            on:mouseleave={(e) => e.currentTarget.style.boxShadow = 'var(--glow)'}>
+            <span class="w-10 h-10 rounded-full block" style="background: var(--accent); box-shadow: var(--glow)"></span>
           </button>
-          <div class="absolute inset-0 rounded-full border-2 border-indigo-400 animate-ripple pointer-events-none"></div>
+          <div class="absolute inset-0 rounded-full animate-ripple" style="border: 1px solid var(--accent); pointer-events: none"></div>
         </div>
         <div class="text-center">
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Click to start recording</p>
-          <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">or press <kbd class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 font-mono text-xs">{hotkeys.record}</kbd></p>
+          <p class="text-sm font-bold tracking-widest uppercase" style="color: var(--text); font-family: var(--font-mono)">CLICK TO RECORD</p>
+          <p class="text-[10px] mt-1" style="color: var(--muted); font-family: var(--font-mono)">OR PRESS <span style="color: var(--accent)">{hotkeys.record}</span></p>
           {#if countdown > 0}
-            <p class="text-xs text-amber-500 mt-1">{countdown}s countdown enabled</p>
+            <p class="text-[10px] mt-1" style="color: var(--accent3); font-family: var(--font-mono)">{countdown}S COUNTDOWN ON</p>
           {/if}
         </div>
       </div>
 
     {:else if state === 'countdown'}
-      <div class="flex flex-col items-center gap-3 animate-fade-in">
-        <div class="text-8xl font-black font-mono text-indigo-600 dark:text-indigo-400 animate-countdown tabular-nums">
+      <div class="flex flex-col items-center gap-2">
+        <div class="text-[120px] font-black leading-none animate-glitch tabular-nums"
+          style="color: var(--accent); font-family: var(--font-display); text-shadow: var(--glow)">
           {countdownValue}
         </div>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Recording starts in...</p>
+        <p class="text-[11px] tracking-[4px] uppercase" style="color: var(--muted); font-family: var(--font-mono)">RECORDING IN...</p>
       </div>
 
     {:else if state === 'recording'}
-      <div class="w-full p-6 flex flex-col gap-4 animate-fade-in">
-        <!-- Top row -->
-        <div class="flex items-center gap-3">
-          <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-            <span class="w-2 h-2 rounded-full bg-red-500 animate-blink"></span>
-            <span class="text-xs font-bold text-red-600 dark:text-red-400 tracking-widest">REC</span>
+      <div class="w-full p-5 flex flex-col gap-4">
+        <!-- Header -->
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2 px-3 py-1" style="background: var(--bg3); border: 1px solid var(--accent2)">
+            <span class="w-2 h-2 rounded-full animate-blink" style="background: var(--accent2)"></span>
+            <span class="text-[11px] font-bold tracking-[3px]" style="color: var(--accent2); font-family: var(--font-mono)">REC</span>
           </div>
-          <span class="text-3xl font-black font-mono text-gray-900 dark:text-white tabular-nums">{formatTime(elapsed)}</span>
-          <button on:click={stopRecording}
-            class="ml-auto flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 text-sm font-semibold text-gray-700 dark:text-gray-300 transition-all border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-            Stop <kbd class="text-[10px] font-mono opacity-60">{hotkeys.record}</kbd>
+          <span class="text-4xl font-black tabular-nums" style="color: var(--text); font-family: var(--font-display); text-shadow: var(--glow)">{fmt(elapsed)}</span>
+          <button on:click={stopRecording} class="ml-auto px-4 py-2 text-[11px] font-bold tracking-widest uppercase transition-all"
+            style="font-family: var(--font-mono); background: var(--bg3); color: var(--text); border: 1px solid var(--border)"
+            on:mouseenter={(e) => { e.currentTarget.style.borderColor = 'var(--accent2)'; e.currentTarget.style.color = 'var(--accent2)' }}
+            on:mouseleave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text)' }}>
+            ■ STOP [{hotkeys.record}]
           </button>
         </div>
 
         <!-- Stats -->
         <div class="grid grid-cols-4 gap-2">
-          {#each [['Moves', moves, 'text-emerald-600 dark:text-emerald-400'],['Clicks', clicks, 'text-red-600 dark:text-red-400'],['Keys', keys, 'text-amber-600 dark:text-amber-400'],['Total', recordedEvents.length, 'text-indigo-600 dark:text-indigo-400']] as [label, val, cls]}
-            <div class="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center border border-gray-100 dark:border-gray-800">
-              <div class="text-2xl font-black font-mono {cls}">{val}</div>
-              <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">{label}</div>
+          {#each [['MOVES', moves, 'var(--accent)'],['CLICKS', clicks, 'var(--accent2)'],['KEYS', keys, 'var(--accent3)'],['TOTAL', recordedEvents.length, 'var(--text)']] as [label, val, color]}
+            <div class="p-3 text-center" style="background: var(--bg3); border: 1px solid var(--border)">
+              <div class="text-2xl font-black tabular-nums" style="color: {color}; font-family: var(--font-display)">{val}</div>
+              <div class="text-[9px] tracking-widest mt-1" style="color: var(--muted); font-family: var(--font-mono)">{label}</div>
             </div>
           {/each}
         </div>
 
         <!-- Feed -->
-        <div class="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-          <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Live Feed</p>
-          <div class="flex flex-col gap-1.5 min-h-[60px]">
-            {#each recordedEvents.slice(-6).reverse() as ev, i}
-              <div class="flex items-center justify-between" style="opacity: {Math.max(0.2, 1 - i * 0.15)}">
-                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md font-mono {eventBadgeClass(ev)}">{eventLabel(ev)}</span>
-                <span class="text-[10px] font-mono text-gray-400">{ev.timestamp}ms</span>
+        <div class="p-3" style="background: var(--bg3); border: 1px solid var(--border)">
+          <p class="text-[9px] tracking-[3px] uppercase mb-2" style="color: var(--muted); font-family: var(--font-mono)">◆ LIVE FEED</p>
+          <div class="flex flex-col gap-1 min-h-[50px]">
+            {#each recordedEvents.slice(-5).reverse() as ev, i}
+              <div class="flex items-center justify-between" style="opacity: {Math.max(0.2, 1 - i * 0.18)}">
+                <span class="text-[11px] font-bold" style="color: {evColor(ev)}; font-family: var(--font-mono)">{evLabel(ev)}</span>
+                <span class="text-[10px]" style="color: var(--muted); font-family: var(--font-mono)">{ev.timestamp}ms</span>
               </div>
             {/each}
             {#if recordedEvents.length === 0}
-              <p class="text-xs text-gray-400 font-mono">Waiting for input...</p>
+              <span class="text-[11px] animate-blink" style="color: var(--muted); font-family: var(--font-mono)">WAITING FOR INPUT_</span>
             {/if}
           </div>
         </div>
       </div>
 
     {:else if state === 'done'}
-      <div class="flex flex-col items-center gap-5 p-6 w-full max-w-sm animate-slide-up">
-        <div class="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 text-2xl font-bold">
-          ✓
-        </div>
-        <div class="flex items-center gap-4">
-          {#each [['Moves', moves],['Clicks', clicks],['Keys', keys],[formatTime(Math.floor(duration/1000)),'Duration']] as [val, label]}
-            <div class="text-center">
-              <div class="text-xl font-black font-mono text-gray-900 dark:text-white">{val}</div>
-              <div class="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+      <div class="flex flex-col items-center gap-5 p-6 w-full max-w-xs">
+        <p class="text-[11px] tracking-[4px] uppercase" style="color: var(--accent); font-family: var(--font-mono)">◆ RECORDING COMPLETE</p>
+        <div class="grid grid-cols-4 gap-3 w-full">
+          {#each [[moves,'MOV'],[clicks,'CLK'],[keys,'KEY'],[fmt(Math.floor(duration/1000)),'DUR']] as [val, label]}
+            <div class="text-center p-2" style="border: 1px solid var(--border)">
+              <div class="text-lg font-black" style="color: var(--accent); font-family: var(--font-display)">{val}</div>
+              <div class="text-[9px]" style="color: var(--muted); font-family: var(--font-mono)">{label}</div>
             </div>
-            {#if label !== 'Duration'}<div class="w-px h-8 bg-gray-200 dark:bg-gray-700"></div>{/if}
           {/each}
         </div>
         <div class="w-full flex flex-col gap-2">
-          <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Macro Name</label>
-          <input bind:value={macroName} type="text" placeholder="e.g. Roblox Auto-Farm"
+          <p class="text-[9px] tracking-[3px] uppercase" style="color: var(--muted); font-family: var(--font-mono)">MACRO NAME</p>
+          <input bind:value={macroName} type="text"
             on:keydown={(e) => e.key === 'Enter' && saveMacro()}
-            class="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"/>
+            class="w-full px-3 py-2 text-sm font-bold tracking-wider uppercase outline-none transition-all"
+            style="background: var(--bg3); border: 1px solid var(--border2); color: var(--text); font-family: var(--font-mono)"
+            on:focus={(e) => e.target.style.borderColor = 'var(--accent)'}
+            on:blur={(e) => e.target.style.borderColor = 'var(--border2)'}/>
           <div class="flex gap-2 mt-1">
-            <button on:click={discard}
-              class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-              Discard
+            <button on:click={discard} class="flex-1 py-2 text-[11px] font-bold tracking-widest uppercase transition-all"
+              style="background: var(--bg3); color: var(--muted); border: 1px solid var(--border); font-family: var(--font-mono)"
+              on:mouseenter={(e) => e.currentTarget.style.color = 'var(--text)'}
+              on:mouseleave={(e) => e.currentTarget.style.color = 'var(--muted)'}>
+              DISCARD
             </button>
-            <button on:click={saveMacro} disabled={!macroName.trim()}
-              class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm">
-              Save Macro
+            <button on:click={saveMacro} disabled={!macroName.trim()} class="flex-1 py-2 text-[11px] font-bold tracking-widest uppercase transition-all"
+              style="background: var(--accent); color: var(--bg); border: 1px solid var(--accent); font-family: var(--font-mono); box-shadow: var(--glow); opacity: {macroName.trim() ? 1 : 0.4}; cursor: {macroName.trim() ? 'pointer' : 'not-allowed'}">
+              SAVE ◆
             </button>
           </div>
         </div>
@@ -280,9 +257,11 @@
     {/if}
   </div>
 
-  <!-- Tips -->
-  <div class="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50">
-    <span class="text-amber-500 text-base">⚠️</span>
-    <p class="text-xs text-amber-700 dark:text-amber-400">Best for <strong>Roblox, idle games, BlueStacks</strong>. Do NOT use in anti-cheat games like Valorant or CS2.</p>
+  <!-- Warning -->
+  <div class="px-4 py-2 flex items-center gap-3" style="background: var(--bg2); border: 1px solid var(--border)">
+    <span style="color: var(--accent3); font-family: var(--font-mono)" class="text-xs">⚠</span>
+    <p class="text-[10px] tracking-wider" style="color: var(--muted); font-family: var(--font-mono)">
+      USE WITH: ROBLOX · MINECRAFT · IDLE GAMES · BLUESTACKS &nbsp;|&nbsp; DO NOT USE IN ANTI-CHEAT GAMES
+    </p>
   </div>
 </div>

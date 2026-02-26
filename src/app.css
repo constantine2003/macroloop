@@ -1,17 +1,138 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  * { @apply border-border; }
-  body { @apply bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans antialiased; }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { @apply bg-transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-gray-700 rounded-full; }
+  * { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 2px; }
 }
 
-@layer utilities {
-  .border-border { @apply border-gray-200 dark:border-gray-800; }
-  .glass { @apply bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm; }
+/* ── THEME VARIABLES ─────────────────────────────────────── */
+
+/* Y2K Cyberpunk - dark */
+.theme-cyber {
+  --bg: #050510;
+  --bg2: #0d0d1f;
+  --bg3: #13132d;
+  --border: #2a2a5a;
+  --border2: #4040a0;
+  --text: #e0e0ff;
+  --muted: #6060a0;
+  --accent: #00ffcc;
+  --accent2: #ff00ff;
+  --accent3: #ffcc00;
+  --glow: 0 0 20px rgba(0,255,204,0.4);
+  --glow2: 0 0 20px rgba(255,0,255,0.4);
+  --scroll: #2a2a5a;
+  --font-display: 'Orbitron', monospace;
+  --font-mono: 'Share Tech Mono', monospace;
+  --scanlines: rgba(0,0,0,0.15);
+}
+
+/* Y2K Bubble - light pastel */
+.theme-bubble {
+  --bg: #fff0f8;
+  --bg2: #ffe4f4;
+  --bg3: #ffd6ef;
+  --border: #ffb3e0;
+  --border2: #ff80cc;
+  --text: #330022;
+  --muted: #cc88bb;
+  --accent: #ff3399;
+  --accent2: #9933ff;
+  --accent3: #ffcc00;
+  --glow: 0 0 20px rgba(255,51,153,0.3);
+  --glow2: 0 0 20px rgba(153,51,255,0.3);
+  --scroll: #ffb3e0;
+  --font-display: 'Orbitron', monospace;
+  --font-mono: 'Share Tech Mono', monospace;
+  --scanlines: rgba(255,100,200,0.04);
+}
+
+/* Vintage Terminal - green on black */
+.theme-terminal {
+  --bg: #000800;
+  --bg2: #001200;
+  --bg3: #001a00;
+  --border: #005500;
+  --border2: #00aa00;
+  --text: #00ff41;
+  --muted: #005500;
+  --accent: #00ff41;
+  --accent2: #00cc33;
+  --accent3: #88ff00;
+  --glow: 0 0 15px rgba(0,255,65,0.5);
+  --glow2: 0 0 15px rgba(0,204,51,0.4);
+  --scroll: #005500;
+  --font-display: 'VT323', monospace;
+  --font-mono: 'VT323', monospace;
+  --scanlines: rgba(0,0,0,0.3);
+}
+
+/* Sunset Vapor - purple/orange */
+.theme-vapor {
+  --bg: #1a0033;
+  --bg2: #220044;
+  --bg3: #2d0055;
+  --border: #550088;
+  --border2: #aa00ff;
+  --text: #ffddff;
+  --muted: #884499;
+  --accent: #ff6600;
+  --accent2: #ff00aa;
+  --accent3: #00ffff;
+  --glow: 0 0 20px rgba(255,102,0,0.4);
+  --glow2: 0 0 20px rgba(255,0,170,0.4);
+  --scroll: #550088;
+  --font-display: 'Orbitron', monospace;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --scanlines: rgba(100,0,150,0.1);
+}
+
+/* Clean Light - minimal Y2K */
+.theme-clean {
+  --bg: #f0f4ff;
+  --bg2: #ffffff;
+  --bg3: #e8eeff;
+  --border: #c0ccff;
+  --border2: #8899ff;
+  --text: #111133;
+  --muted: #8899bb;
+  --accent: #3355ff;
+  --accent2: #ff3355;
+  --accent3: #ffaa00;
+  --glow: 0 4px 20px rgba(51,85,255,0.2);
+  --glow2: 0 4px 20px rgba(255,51,85,0.2);
+  --scroll: #c0ccff;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --scanlines: rgba(0,0,0,0);
+}
+
+/* ── GLOBAL STYLES ───────────────────────────────────────── */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  overflow: hidden;
+  height: 100vh;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* Scanlines overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--scanlines) 0px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 9999;
 }

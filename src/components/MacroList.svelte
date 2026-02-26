@@ -1,77 +1,79 @@
 <script>
   import { createEventDispatcher } from 'svelte'
   const dispatch = createEventDispatcher()
-
   export let macros = []
 
   function fmtDate(iso) {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
-  function fmtDur(ms) {
-    if (!ms) return '0s'
-    return ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
-  }
+  function fmtDur(ms) { return !ms ? '0s' : ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s` }
 </script>
 
-<div class="h-full flex flex-col overflow-y-auto p-6 gap-5 bg-gray-50 dark:bg-gray-950 animate-fade-in">
+<div class="h-full flex flex-col overflow-y-auto p-6 gap-4 animate-scanin" style="background: var(--bg)">
 
-  <div class="flex items-start justify-between">
-    <div>
-      <h1 class="text-xl font-bold text-gray-900 dark:text-white">Saved Macros</h1>
-      <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{macros.length} macro{macros.length !== 1 ? 's' : ''} saved locally</p>
+  <!-- Top bar -->
+  <div class="flex items-center justify-between">
+    <button on:click={() => dispatch('back')}
+      class="text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
+      style="color: var(--muted); font-family: var(--font-mono); border: 1px solid var(--border)"
+      on:mouseenter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
+      on:mouseleave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)' }}>
+      ◀ BACK
+    </button>
+    <h1 class="text-lg font-black tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-display); text-shadow: var(--glow)">
+      ▦ MACROS
+    </h1>
+    <div class="text-[11px] font-bold tracking-widest" style="color: var(--muted); font-family: var(--font-mono)">
+      {macros.length} SAVED
     </div>
   </div>
 
   {#if macros.length === 0}
-    <div class="flex-1 flex flex-col items-center justify-center bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-12 gap-3 text-center">
-      <div class="text-5xl mb-2">🎮</div>
-      <p class="font-semibold text-gray-800 dark:text-gray-200">No macros yet</p>
-      <p class="text-sm text-gray-400">Record your first macro to see it here</p>
+    <div class="flex-1 flex flex-col items-center justify-center gap-4" style="border: 1px solid var(--border); background: var(--bg2)">
+      <span class="text-5xl animate-float">🎮</span>
+      <p class="text-sm font-bold tracking-widest uppercase" style="color: var(--muted); font-family: var(--font-mono)">NO MACROS FOUND</p>
+      <p class="text-[10px]" style="color: var(--muted); font-family: var(--font-mono)">RECORD ONE FIRST</p>
     </div>
 
   {:else}
     <div class="grid grid-cols-2 gap-3">
       {#each macros as macro}
-        <div class="group bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-2xl p-4 flex flex-col gap-3 transition-all hover:shadow-md hover:shadow-indigo-500/5">
+        <div class="group flex flex-col gap-3 p-4 transition-all"
+          style="background: var(--bg2); border: 1px solid var(--border)"
+          on:mouseenter={(e) => e.currentTarget.style.borderColor = 'var(--border2)'}
+          on:mouseleave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}>
 
-          <!-- Top -->
-          <div class="flex items-start justify-between gap-2">
-            <p class="font-bold text-sm text-gray-900 dark:text-white leading-tight">{macro.name}</p>
+          <!-- Corner deco -->
+          <div class="flex items-start justify-between">
+            <p class="text-[12px] font-bold tracking-wider uppercase leading-tight flex-1 pr-2"
+              style="color: var(--accent); font-family: var(--font-mono)">{macro.name}</p>
             <button on:click={() => dispatch('delete', { id: macro.id })}
-              class="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all flex-shrink-0">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3,6 5,6 21,6"/><path d="M19,6L18,20a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/>
-                <path d="M10,11v6M14,11v6"/>
-              </svg>
+              class="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center text-[10px] font-bold transition-all flex-shrink-0"
+              style="color: var(--muted); border: 1px solid var(--border); font-family: var(--font-mono)"
+              on:mouseenter={(e) => { e.currentTarget.style.color = 'var(--accent2)'; e.currentTarget.style.borderColor = 'var(--accent2)' }}
+              on:mouseleave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)' }}>
+              ✕
             </button>
           </div>
 
-          <!-- Stats chips -->
-          <div class="flex gap-1.5 flex-wrap">
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400">
-              {macro.eventCount} events
-            </span>
-            {#if macro.clickCount}
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                {macro.clickCount} clicks
+          <!-- Stats row -->
+          <div class="flex gap-2 flex-wrap">
+            {#each [[macro.eventCount + ' EVT', 'var(--accent)'],[macro.clickCount + ' CLK', 'var(--accent2)'],[macro.keyCount + ' KEY', 'var(--accent3)'], [fmtDur(macro.duration), 'var(--muted)']] as [label, color]}
+              <span class="text-[9px] font-bold tracking-widest px-1.5 py-0.5"
+                style="color: {color}; font-family: var(--font-mono); border: 1px solid {color}30">
+                {label}
               </span>
-            {/if}
-            {#if macro.keyCount}
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">
-                {macro.keyCount} keys
-              </span>
-            {/if}
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400">
-              {fmtDur(macro.duration)}
-            </span>
+            {/each}
           </div>
 
-          <p class="text-[10px] font-mono text-gray-400">{fmtDate(macro.createdAt)}</p>
+          <p class="text-[9px]" style="color: var(--muted); font-family: var(--font-mono)">{fmtDate(macro.createdAt)}</p>
 
           <button on:click={() => dispatch('select', macro)}
-            class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
-            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-            Run Macro
+            class="w-full py-2.5 text-[10px] font-black tracking-widest uppercase transition-all mt-auto"
+            style="background: var(--bg3); color: var(--accent); border: 1px solid var(--accent); font-family: var(--font-mono)"
+            on:mouseenter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'var(--bg)' }}
+            on:mouseleave={(e) => { e.currentTarget.style.background = 'var(--bg3)'; e.currentTarget.style.color = 'var(--accent)' }}>
+            ▶ RUN
           </button>
         </div>
       {/each}
