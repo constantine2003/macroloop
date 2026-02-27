@@ -39,7 +39,7 @@
   {:else}
     <div class="grid grid-cols-2 gap-3">
       {#each macros as macro}
-        <div class="group flex flex-col gap-3 p-4 transition-all"
+        <article class="group flex flex-col gap-3 p-4 transition-all"
           style="background: var(--bg2); border: 1px solid var(--border)"
           on:mouseenter={(e) => e.currentTarget.style.borderColor = 'var(--border2)'}
           on:mouseleave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}>
@@ -76,7 +76,7 @@
             on:mouseleave={(e) => { e.currentTarget.style.background = 'var(--bg3)'; e.currentTarget.style.color = 'var(--accent)' }}>
             ▶ RUN
           </button>
-        </div>
+        </article>
       {/each}
     </div>
   {/if}
