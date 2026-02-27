@@ -81,7 +81,7 @@ Hotkeys can be changed in the **CONFIG** panel on the Record screen. They work e
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/macroloop
+git clone https://github.com/constantine2003/macroloop
 cd macroloop
 npm install
 npm run dev
