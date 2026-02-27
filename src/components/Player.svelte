@@ -89,7 +89,8 @@
   function fmt(ms) { return !ms ? '0s' : ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s` }
 </script>
 
-<div class="h-full flex flex-col overflow-y-auto p-6 gap-4 animate-scanin" style="background: var(--bg)">
+<div class="h-full flex flex-col overflow-hidden animate-scanin" style="background: var(--bg)">
+  <div class="flex flex-col gap-4 p-5 overflow-y-auto flex-1 min-h-0 max-h-full">
 
   <!-- Top bar -->
   <div class="flex items-center justify-between">
@@ -352,4 +353,5 @@
       </button>
     {/if}
   {/if}
+  </div>
 </div>
