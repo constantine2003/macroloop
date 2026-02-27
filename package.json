@@ -32,38 +32,19 @@
   "build": {
     "appId": "com.daniel.macroloop",
     "productName": "MacroLoop",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "node_modules/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "node_modules/@nut-tree-fork/nut-js",
-        "to": "app/node_modules/@nut-tree-fork/nut-js"
-      },
-      {
-        "from": "node_modules/uiohook-napi",
-        "to": "app/node_modules/uiohook-napi"
-      }
+      "node_modules/**/*",
+      "package.json"
     ],
     "win": {
-      "target": "nsis",
-      "requestedExecutionLevel": "requireAdministrator",
-      "signingHashAlgorithms": null,
-      "sign": null
-    },
-    "mac": {
-      "target": "dmg"
-    },
-    "linux": {
-      "target": "AppImage"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "target": "portable",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "forceCodeSigning": false
   }
