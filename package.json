@@ -25,14 +25,25 @@
   "dependencies": {
     "@nut-tree-fork/nut-js": "^4.2.0",
     "electron-store": "^8.1.0",
+    "jimp": "^1.6.0",
+    "screenshot-desktop": "^1.15.3",
     "uiohook-napi": "^1.5.0"
   },
   "build": {
     "appId": "com.daniel.macroloop",
     "productName": "MacroLoop",
-    "files": ["dist/**/*", "electron/**/*"],
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }

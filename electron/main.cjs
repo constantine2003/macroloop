@@ -9,50 +9,43 @@ let mainWindow
 let nutjs = null
 let uiohook = null
 let uIOhookInstance = null
+let screenshot = null
+let Jimp = null
 
-// Try to load nut-js (playback + mouse position polling)
+// nut-js
 try {
   nutjs = require('@nut-tree-fork/nut-js')
   nutjs.keyboard.config.autoDelayMs = 0
   nutjs.mouse.config.autoDelayMs = 0
   nutjs.mouse.config.mouseSpeed = 2000
-} catch (e) {
-  console.warn('nut-js not available:', e.message)
-}
+} catch (e) { console.warn('nut-js not available:', e.message) }
 
-// Load uiohook at startup — must be running BEFORE recording starts
-// to capture global clicks/keys even when Electron window is not focused
+// uiohook — global input capture
 try {
   uiohook = require('uiohook-napi')
   uIOhookInstance = uiohook.uIOhook
-} catch (e) {
-  console.warn('uiohook-napi not available:', e.message)
-}
+} catch (e) { console.warn('uiohook-napi not available:', e.message) }
+
+// screenshot + jimp — for color detection
+try {
+  screenshot = require('screenshot-desktop')
+  Jimp = require('jimp')
+} catch (e) { console.warn('screenshot-desktop/jimp not available:', e.message) }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 680,
-    minWidth: 800,
-    minHeight: 600,
-    frame: false,
-    titleBarStyle: 'hidden',
-    backgroundColor: '#050510',
+    width: 900, height: 680, minWidth: 800, minHeight: 600,
+    frame: false, titleBarStyle: 'hidden', backgroundColor: '#050510',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false
+      contextIsolation: true, nodeIntegration: false
     }
   })
-
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
-  }
+  if (isDev) mainWindow.loadURL('http://localhost:5173')
+  else mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
 }
 
-// ─── Dynamic Hotkey Registration ──────────────────────────────────────────────
+// ─── Hotkeys ──────────────────────────────────────────────────────────────────
 let registeredHotkeys = { record: 'F6', play: 'F7', stop: 'F8' }
 
 function registerHotkeys() {
@@ -69,7 +62,6 @@ ipcMain.handle('set-hotkeys', (_, hotkeys) => {
   store.set('hotkeys', registeredHotkeys)
   return { success: true }
 })
-
 ipcMain.handle('get-hotkeys', () => store.get('hotkeys', registeredHotkeys))
 
 app.whenReady().then(() => {
@@ -77,57 +69,90 @@ app.whenReady().then(() => {
   if (saved) registeredHotkeys = saved
   createWindow()
   registerHotkeys()
-
-  // Start uiohook at launch so it can capture global events immediately
-  // We start it once and keep it running — just toggle isRecording to gate events
   if (uIOhookInstance) {
-    try {
-      uIOhookInstance.start()
-      console.log('uiohook started globally')
-    } catch (e) {
-      console.warn('uiohook start failed:', e.message)
-    }
+    try { uIOhookInstance.start(); console.log('uiohook started') }
+    catch (e) { console.warn('uiohook start failed:', e.message) }
   }
 })
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
-  if (uIOhookInstance) {
-    try { uIOhookInstance.stop() } catch (e) {}
+  if (uIOhookInstance) try { uIOhookInstance.stop() } catch (e) {}
+})
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+
+// ─── Color Detection ──────────────────────────────────────────────────────────
+// Scans the screen for a pixel matching the target color within a tolerance
+async function findColorOnScreen(targetR, targetG, targetB, tolerance = 20) {
+  if (!screenshot || !Jimp) return null
+  try {
+    const imgBuffer = await screenshot({ format: 'png' })
+    const img = await Jimp.read(imgBuffer)
+    const w = img.getWidth()
+    const h = img.getHeight()
+
+    let bestMatch = null
+    let bestDist = Infinity
+
+    // Scan every 4px for speed
+    for (let y = 0; y < h; y += 4) {
+      for (let x = 0; x < w; x += 4) {
+        const hex = img.getPixelColor(x, y)
+        const r = (hex >> 24) & 0xff
+        const g = (hex >> 16) & 0xff
+        const b = (hex >> 8)  & 0xff
+        const dist = Math.sqrt(
+          Math.pow(r - targetR, 2) +
+          Math.pow(g - targetG, 2) +
+          Math.pow(b - targetB, 2)
+        )
+        if (dist < tolerance && dist < bestDist) {
+          bestDist = dist
+          bestMatch = { x, y }
+        }
+      }
+    }
+    return bestMatch
+  } catch (e) {
+    console.error('Color scan error:', e.message)
+    return null
   }
+}
+
+// Get current pixel color under mouse
+ipcMain.handle('get-pixel-under-mouse', async () => {
+  if (!nutjs || !screenshot || !Jimp) return null
+  try {
+    const pos = await nutjs.mouse.getPosition()
+    const imgBuffer = await screenshot({ format: 'png' })
+    const img = await Jimp.read(imgBuffer)
+    const hex = img.getPixelColor(pos.x, pos.y)
+    const r = (hex >> 24) & 0xff
+    const g = (hex >> 16) & 0xff
+    const b = (hex >> 8)  & 0xff
+    return { r, g, b, x: pos.x, y: pos.y, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
+  } catch (e) { return null }
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-// ─── Recording State ──────────────────────────────────────────────────────────
+// ─── Recording ────────────────────────────────────────────────────────────────
 let recordingInterval = null
 let recordedEvents = []
 let recordingStartTime = null
 let lastMousePos = { x: 0, y: 0 }
-let isRecording = false  // THE single source of truth — all handlers check this
+let isRecording = false
 
 ipcMain.handle('start-recording', async () => {
-  // 1. Hard stop any previous recording first
   isRecording = false
   if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
-
-  // 2. Minimize window so user can interact with their game
   if (mainWindow) mainWindow.minimize()
-
-  // 3. Small delay to let minimize animation finish
   await new Promise(r => setTimeout(r, 300))
 
-  // 4. Reset state
   recordedEvents = []
   lastMousePos = { x: 0, y: 0 }
   recordingStartTime = Date.now()
 
-  // 5. Register uiohook listeners (remove old ones first to prevent stacking)
   if (uIOhookInstance) {
     uIOhookInstance.removeAllListeners()
-
     uIOhookInstance.on('mousedown', (e) => {
       if (!isRecording) return
       const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
@@ -135,7 +160,6 @@ ipcMain.handle('start-recording', async () => {
       recordedEvents.push(event)
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
     })
-
     uIOhookInstance.on('mouseup', (e) => {
       if (!isRecording) return
       const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
@@ -143,14 +167,12 @@ ipcMain.handle('start-recording', async () => {
       recordedEvents.push(event)
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
     })
-
     uIOhookInstance.on('keydown', (e) => {
       if (!isRecording) return
       const event = { type: 'keydown', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
       recordedEvents.push(event)
       if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
     })
-
     uIOhookInstance.on('keyup', (e) => {
       if (!isRecording) return
       const event = { type: 'keyup', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
@@ -159,13 +181,12 @@ ipcMain.handle('start-recording', async () => {
     })
   }
 
-  // 6. Start mouse movement polling
   if (nutjs) {
     recordingInterval = setInterval(async () => {
-      if (!isRecording) return  // hard gate — exits immediately if stopped
+      if (!isRecording) return
       try {
         const pos = await nutjs.mouse.getPosition()
-        if (!isRecording) return  // check again after await
+        if (!isRecording) return
         const timestamp = Date.now() - recordingStartTime
         if (pos.x !== lastMousePos.x || pos.y !== lastMousePos.y) {
           lastMousePos = { x: pos.x, y: pos.y }
@@ -177,49 +198,58 @@ ipcMain.handle('start-recording', async () => {
     }, 16)
   }
 
-  // 7. NOW flip the flag — only after everything is set up
   isRecording = true
-
   return { success: true, demo: !nutjs && !uIOhookInstance }
 })
 
 ipcMain.handle('stop-recording', async () => {
-  // 1. Flip flag FIRST — immediately blocks all handlers
   isRecording = false
-
-  // 2. Stop polling interval
   if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
-
-  // 3. Remove all uiohook listeners but DON'T stop uiohook (keep it running for next recording)
-  if (uIOhookInstance) {
-    try { uIOhookInstance.removeAllListeners() } catch (e) {}
-  }
-
-  // 4. Restore the window
-  if (mainWindow) {
-    mainWindow.restore()
-    mainWindow.focus()
-  }
-
+  if (uIOhookInstance) try { uIOhookInstance.removeAllListeners() } catch (e) {}
+  if (mainWindow) { mainWindow.restore(); mainWindow.focus() }
   const duration = Date.now() - (recordingStartTime || Date.now())
   recordingStartTime = null
-
   return { events: recordedEvents, duration }
 })
 
-// ─── Playback State ───────────────────────────────────────────────────────────
+// ─── Playback ─────────────────────────────────────────────────────────────────
 let isPlaying = false
 let playbackId = 0
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed }) => {
+const keyNameToNutKey = (keyName) => {
+  if (!nutjs) return null
+  const map = {
+    'A': nutjs.Key.A, 'B': nutjs.Key.B, 'C': nutjs.Key.C, 'D': nutjs.Key.D,
+    'E': nutjs.Key.E, 'F': nutjs.Key.F, 'G': nutjs.Key.G, 'H': nutjs.Key.H,
+    'I': nutjs.Key.I, 'J': nutjs.Key.J, 'K': nutjs.Key.K, 'L': nutjs.Key.L,
+    'M': nutjs.Key.M, 'N': nutjs.Key.N, 'O': nutjs.Key.O, 'P': nutjs.Key.P,
+    'Q': nutjs.Key.Q, 'R': nutjs.Key.R, 'S': nutjs.Key.S, 'T': nutjs.Key.T,
+    'U': nutjs.Key.U, 'V': nutjs.Key.V, 'W': nutjs.Key.W, 'X': nutjs.Key.X,
+    'Y': nutjs.Key.Y, 'Z': nutjs.Key.Z,
+    '0': nutjs.Key.Num0, '1': nutjs.Key.Num1, '2': nutjs.Key.Num2,
+    '3': nutjs.Key.Num3, '4': nutjs.Key.Num4, '5': nutjs.Key.Num5,
+    '6': nutjs.Key.Num6, '7': nutjs.Key.Num7, '8': nutjs.Key.Num8,
+    '9': nutjs.Key.Num9,
+    'Space': nutjs.Key.Space, 'Enter': nutjs.Key.Return,
+    'Backspace': nutjs.Key.Backspace, 'Tab': nutjs.Key.Tab,
+    'Shift': nutjs.Key.LeftShift, 'Ctrl': nutjs.Key.LeftControl,
+    'Alt': nutjs.Key.LeftAlt, 'Esc': nutjs.Key.Escape,
+    'F1': nutjs.Key.F1,  'F2': nutjs.Key.F2,  'F3': nutjs.Key.F3,
+    'F4': nutjs.Key.F4,  'F5': nutjs.Key.F5,  'F6': nutjs.Key.F6,
+    'F7': nutjs.Key.F7,  'F8': nutjs.Key.F8,  'F9': nutjs.Key.F9,
+    'F10': nutjs.Key.F10, 'F11': nutjs.Key.F11, 'F12': nutjs.Key.F12,
+    '-': nutjs.Key.Minus, '=': nutjs.Key.Equal,
+  }
+  return map[keyName] || null
+}
+
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTarget, colorTolerance }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
-  // Stop any previous playback
   isPlaying = false
   await new Promise(r => setTimeout(r, 50))
 
-  // Minimize so macro runs in the background on the game
   if (mainWindow) mainWindow.minimize()
   await new Promise(r => setTimeout(r, 300))
 
@@ -229,49 +259,58 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed }) => {
   let loopCount = 0
   const maxLoops = loops === 0 ? Infinity : loops
 
-  // Build a nut-js Key map from uiohook keycodes
-  // nut-js uses its own Key enum — we map from the key NAME we stored during recording
-  const keyNameToNutKey = (keyName) => {
-    const map = {
-      'A': nutjs.Key.A, 'B': nutjs.Key.B, 'C': nutjs.Key.C, 'D': nutjs.Key.D,
-      'E': nutjs.Key.E, 'F': nutjs.Key.F, 'G': nutjs.Key.G, 'H': nutjs.Key.H,
-      'I': nutjs.Key.I, 'J': nutjs.Key.J, 'K': nutjs.Key.K, 'L': nutjs.Key.L,
-      'M': nutjs.Key.M, 'N': nutjs.Key.N, 'O': nutjs.Key.O, 'P': nutjs.Key.P,
-      'Q': nutjs.Key.Q, 'R': nutjs.Key.R, 'S': nutjs.Key.S, 'T': nutjs.Key.T,
-      'U': nutjs.Key.U, 'V': nutjs.Key.V, 'W': nutjs.Key.W, 'X': nutjs.Key.X,
-      'Y': nutjs.Key.Y, 'Z': nutjs.Key.Z,
-      '0': nutjs.Key.Num0, '1': nutjs.Key.Num1, '2': nutjs.Key.Num2,
-      '3': nutjs.Key.Num3, '4': nutjs.Key.Num4, '5': nutjs.Key.Num5,
-      '6': nutjs.Key.Num6, '7': nutjs.Key.Num7, '8': nutjs.Key.Num8,
-      '9': nutjs.Key.Num9,
-      'Space': nutjs.Key.Space, 'Enter': nutjs.Key.Return,
-      'Backspace': nutjs.Key.Backspace, 'Tab': nutjs.Key.Tab,
-      'Shift': nutjs.Key.LeftShift, 'Ctrl': nutjs.Key.LeftControl,
-      'Alt': nutjs.Key.LeftAlt, 'Esc': nutjs.Key.Escape,
-      'F1': nutjs.Key.F1, 'F2': nutjs.Key.F2, 'F3': nutjs.Key.F3,
-      'F4': nutjs.Key.F4, 'F5': nutjs.Key.F5, 'F6': nutjs.Key.F6,
-      'F7': nutjs.Key.F7, 'F8': nutjs.Key.F8, 'F9': nutjs.Key.F9,
-      'F10': nutjs.Key.F10, 'F11': nutjs.Key.F11, 'F12': nutjs.Key.F12,
-      '-': nutjs.Key.Minus, '=': nutjs.Key.Equal,
+  const waitChunked = async (ms) => {
+    const chunks = Math.ceil(ms / 16)
+    for (let c = 0; c < chunks; c++) {
+      if (!isPlaying || playbackId !== myId) return false
+      await new Promise(r => setTimeout(r, 16))
     }
-    return map[keyName] || null
+    return true
   }
 
   const playOnce = async () => {
+    // ── Color detection: find button before playing ──────────────────────────
+    if (colorTarget) {
+      mainWindow.webContents.send('playback-status', 'SCANNING FOR BUTTON...')
+      let found = null
+      let attempts = 0
+      while (!found && isPlaying && playbackId === myId && attempts < 20) {
+        found = await findColorOnScreen(colorTarget.r, colorTarget.g, colorTarget.b, colorTolerance || 20)
+        if (!found) {
+          await new Promise(r => setTimeout(r, 500))
+          attempts++
+        }
+      }
+      if (!found) {
+        mainWindow.webContents.send('playback-status', 'COLOR NOT FOUND — SKIPPING LOOP')
+        return 'skip'
+      }
+      // Move mouse to the found color position before replaying
+      // Offset all mousedown/mouseup events relative to found position
+      mainWindow.webContents.send('playback-status', `FOUND AT ${found.x},${found.y}`)
+      // Find the first click in recorded events to compute offset
+      const firstClick = events.find(e => e.type === 'mousedown')
+      if (firstClick) {
+        const offsetX = found.x - firstClick.x
+        const offsetY = found.y - firstClick.y
+        events = events.map(e => {
+          if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup') {
+            return { ...e, x: e.x + offsetX, y: e.y + offsetY }
+          }
+          return e
+        })
+      }
+    }
+
+    mainWindow.webContents.send('playback-status', 'RUNNING')
+
+    // ── Replay events ────────────────────────────────────────────────────────
     for (let i = 0; i < events.length; i++) {
       if (!isPlaying || playbackId !== myId) return
       const event = events[i]
       const delay = i === 0 ? 0 : (events[i].timestamp - events[i-1].timestamp) / speed
-
-      // Break delay into 16ms chunks so stop responds instantly
-      const chunks = Math.ceil(Math.max(0, delay) / 16)
-      for (let c = 0; c < chunks; c++) {
-        if (!isPlaying || playbackId !== myId) return
-        await new Promise(r => setTimeout(r, 16))
-      }
-
-      if (!isPlaying || playbackId !== myId) return
-
+      const ok = await waitChunked(Math.max(0, delay))
+      if (!ok) return
       try {
         if (event.type === 'mousemove') {
           await nutjs.mouse.setPosition({ x: event.x, y: event.y })
@@ -283,8 +322,6 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed }) => {
           if (event.button === 'left') await nutjs.mouse.releaseButton(nutjs.Button.LEFT)
           else if (event.button === 'right') await nutjs.mouse.releaseButton(nutjs.Button.RIGHT)
         } else if (event.type === 'keydown') {
-          // Use key NAME (e.g. 'A', 'Space') mapped to nut-js Key enum
-          // This is correct regardless of keyboard layout
           const nutKey = keyNameToNutKey(event.key)
           if (nutKey !== null) await nutjs.keyboard.pressKey(nutKey)
         } else if (event.type === 'keyup') {
@@ -300,14 +337,29 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed }) => {
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('playback-loop-done', { loopCount })
 
     if (isPlaying && playbackId === myId && loopCount < maxLoops) {
-      await new Promise(r => setTimeout(r, 300))
+      // ── Cooldown between loops ─────────────────────────────────────────────
+      let waitMs = 0
+      if (cooldown === 'fixed') {
+        waitMs = (cooldownMin || 0) * 1000
+      } else if (cooldown === 'random') {
+        const min = (cooldownMin || 0) * 1000
+        const max = (cooldownMax || 5) * 1000
+        waitMs = min + Math.random() * (max - min)
+      }
+
+      if (waitMs > 0) {
+        mainWindow.webContents.send('playback-status', `COOLDOWN ${(waitMs/1000).toFixed(1)}s`)
+        const ok = await waitChunked(waitMs)
+        if (!ok) return
+      }
+
       if (isPlaying && playbackId === myId) playOnce()
     } else {
       isPlaying = false
-      // Restore window when done
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isDestroyed()) {
         mainWindow.restore()
         mainWindow.focus()
+        mainWindow.webContents.send('playback-status', 'IDLE')
         mainWindow.webContents.send('playback-finished')
       }
     }
@@ -319,16 +371,15 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed }) => {
 
 ipcMain.handle('stop-playback', async () => {
   isPlaying = false
-  playbackId++  // invalidates any running loop immediately
-  // Release held buttons just in case
+  playbackId++
   if (nutjs) {
     try { await nutjs.mouse.releaseButton(nutjs.Button.LEFT) } catch(e) {}
     try { await nutjs.mouse.releaseButton(nutjs.Button.RIGHT) } catch(e) {}
   }
-  // Restore window
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.restore()
     mainWindow.focus()
+    mainWindow.webContents.send('playback-status', 'IDLE')
     mainWindow.webContents.send('playback-finished')
   }
   return { success: true }
@@ -354,7 +405,7 @@ ipcMain.on('window-minimize', () => mainWindow.minimize())
 ipcMain.on('window-maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
 ipcMain.on('window-close', () => mainWindow.close())
 
-// ─── Keycode Helper ───────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function keycodeToName(keycode) {
   const map = {
     1:'Esc',2:'1',3:'2',4:'3',5:'4',6:'5',7:'6',8:'7',9:'8',10:'9',11:'0',
