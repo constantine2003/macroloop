@@ -34,17 +34,37 @@
     "productName": "MacroLoop",
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/@nut-tree-fork/nut-js",
+        "to": "app/node_modules/@nut-tree-fork/nut-js"
+      },
+      {
+        "from": "node_modules/uiohook-napi",
+        "to": "app/node_modules/uiohook-napi"
+      }
     ],
     "win": {
       "target": "nsis",
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "requireAdministrator",
+      "signingHashAlgorithms": null,
+      "sign": null
     },
     "mac": {
       "target": "dmg"
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "forceCodeSigning": false
   }
 }

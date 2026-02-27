@@ -46,19 +46,124 @@ function createWindow() {
 }
 
 // ─── Hotkeys ──────────────────────────────────────────────────────────────────
+// We use uiohook for hotkeys instead of Electron's globalShortcut
+// because globalShortcut can be blocked by games that run as Administrator.
+// uiohook operates at the OS level and always fires regardless of focused window.
+
 let registeredHotkeys = { record: 'F6', play: 'F7', stop: 'F8' }
 
-function registerHotkeys() {
-  globalShortcut.unregisterAll()
-  const { record, play, stop } = registeredHotkeys
-  if (record) globalShortcut.register(record, () => mainWindow.webContents.send('hotkey', 'toggle-record'))
-  if (play)   globalShortcut.register(play,   () => mainWindow.webContents.send('hotkey', 'toggle-play'))
-  if (stop)   globalShortcut.register(stop,   () => mainWindow.webContents.send('hotkey', 'stop'))
+// Map hotkey string like 'F6', 'Ctrl+Shift+R' to uiohook keycodes
+const hotkeyStringToKeycodes = (str) => {
+  if (!str) return null
+  const nameToCode = {
+    // F-keys — must match keycodeToName exactly
+    'F1':59,'F2':60,'F3':61,'F4':62,'F5':63,
+    'F6':64,'F7':65,'F8':66,'F9':67,'F10':68,
+    'F11':87,'F12':88,
+    'A':30,'B':48,'C':46,'D':32,'E':18,'F':33,'G':34,'H':35,
+    'I':23,'J':36,'K':37,'L':38,'M':50,'N':49,'O':24,'P':25,
+    'Q':16,'R':19,'S':31,'T':20,'U':22,'V':47,'W':17,'X':45,
+    'Y':21,'Z':44,
+    '0':11,'1':2,'2':3,'3':4,'4':5,'5':6,'6':7,'7':8,'8':9,'9':10,
+    'Space':57,'Enter':28,'Backspace':14,'Tab':15,'Esc':1,
+    'Ctrl':29,'Shift':42,'Alt':56,
+  }
+  const parts = str.split('+').map(p => p.trim())
+  const codes = parts.map(p => nameToCode[p]).filter(Boolean)
+  return codes.length ? codes : null
+}
+
+// Active hotkey state tracking
+let pressedKeys = new Set()
+
+function setupUiohookHotkeys() {
+  if (!uIOhookInstance) return
+
+  // Single keydown listener handles BOTH hotkeys AND recording
+  uIOhookInstance.on('keydown', (e) => {
+    pressedKeys.add(e.keycode)
+
+    // ── Hotkey check ──────────────────────────────────────────
+    const check = (action, hotkeyStr) => {
+      const codes = hotkeyStringToKeycodes(hotkeyStr)
+      if (!codes) return
+      if (codes.every(c => pressedKeys.has(c))) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('hotkey', action)
+        }
+      }
+    }
+    check('toggle-record', registeredHotkeys.record)
+    check('toggle-play',   registeredHotkeys.play)
+    check('stop',          registeredHotkeys.stop)
+
+    // ── Recording capture ─────────────────────────────────────
+    if (isRecording) {
+      // Don't record the stop hotkey itself
+      const stopCodes = hotkeyStringToKeycodes(registeredHotkeys.record) || []
+      const playCodes = hotkeyStringToKeycodes(registeredHotkeys.play) || []
+      const isHotkeyPress = stopCodes.includes(e.keycode) || playCodes.includes(e.keycode)
+      if (!isHotkeyPress) {
+        const event = { type: 'keydown', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
+        recordedEvents.push(event)
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
+      }
+    }
+  })
+
+  uIOhookInstance.on('keyup', (e) => {
+    pressedKeys.delete(e.keycode)
+    if (isRecording) {
+      const stopCodes = hotkeyStringToKeycodes(registeredHotkeys.record) || []
+      const isHotkeyPress = stopCodes.includes(e.keycode)
+      if (!isHotkeyPress) {
+        const event = { type: 'keyup', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
+        recordedEvents.push(event)
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
+      }
+    }
+  })
+
+  // Mouse events — always on, gated by isRecording
+  uIOhookInstance.on('mousedown', (e) => {
+    if (!isRecording) return
+    const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
+    const event = { type: 'mousedown', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
+
+    // Push event immediately — never block click recording for a screenshot
+    recordedEvents.push(event)
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
+
+    // Capture color in background after event is already recorded
+    if (screenshot && Jimp) {
+      const captureX = e.x
+      const captureY = e.y
+      const eventRef = event
+      setImmediate(async () => {
+        try {
+          const imgBuffer = await screenshot({ format: 'png' })
+          const img = await Jimp.read(imgBuffer)
+          const hex = img.getPixelColor(captureX, captureY)
+          const r = (hex >> 24) & 0xff
+          const g = (hex >> 16) & 0xff
+          const b = (hex >> 8)  & 0xff
+          eventRef.color = { r, g, b, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
+        } catch(e) {}
+      })
+    }
+  })
+
+  uIOhookInstance.on('mouseup', (e) => {
+    if (!isRecording) return
+    const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
+    const event = { type: 'mouseup', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
+    recordedEvents.push(event)
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
+  })
 }
 
 ipcMain.handle('set-hotkeys', (_, hotkeys) => {
   registeredHotkeys = { ...registeredHotkeys, ...hotkeys }
-  registerHotkeys()
   store.set('hotkeys', registeredHotkeys)
   return { success: true }
 })
@@ -68,9 +173,13 @@ app.whenReady().then(() => {
   const saved = store.get('hotkeys', null)
   if (saved) registeredHotkeys = saved
   createWindow()
-  registerHotkeys()
+  // No more globalShortcut — uiohook handles everything
   if (uIOhookInstance) {
-    try { uIOhookInstance.start(); console.log('uiohook started') }
+    try {
+      uIOhookInstance.start()
+      setupUiohookHotkeys()
+      console.log('uiohook started with hotkey support')
+    }
     catch (e) { console.warn('uiohook start failed:', e.message) }
   }
 })
@@ -151,35 +260,8 @@ ipcMain.handle('start-recording', async () => {
   lastMousePos = { x: 0, y: 0 }
   recordingStartTime = Date.now()
 
-  if (uIOhookInstance) {
-    uIOhookInstance.removeAllListeners()
-    uIOhookInstance.on('mousedown', (e) => {
-      if (!isRecording) return
-      const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
-      const event = { type: 'mousedown', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
-      recordedEvents.push(event)
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-    })
-    uIOhookInstance.on('mouseup', (e) => {
-      if (!isRecording) return
-      const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
-      const event = { type: 'mouseup', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
-      recordedEvents.push(event)
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-    })
-    uIOhookInstance.on('keydown', (e) => {
-      if (!isRecording) return
-      const event = { type: 'keydown', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
-      recordedEvents.push(event)
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-    })
-    uIOhookInstance.on('keyup', (e) => {
-      if (!isRecording) return
-      const event = { type: 'keyup', keycode: e.keycode, key: keycodeToName(e.keycode), timestamp: Date.now() - recordingStartTime }
-      recordedEvents.push(event)
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-    })
-  }
+  // Don't removeAllListeners here — hotkey listeners are already set up
+  // and must stay active. Recording is gated by isRecording flag only.
 
   if (nutjs) {
     recordingInterval = setInterval(async () => {
@@ -205,7 +287,7 @@ ipcMain.handle('start-recording', async () => {
 ipcMain.handle('stop-recording', async () => {
   isRecording = false
   if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
-  if (uIOhookInstance) try { uIOhookInstance.removeAllListeners() } catch (e) {}
+  // Don't remove listeners — hotkeys must stay active between recordings
   if (mainWindow) { mainWindow.restore(); mainWindow.focus() }
   const duration = Date.now() - (recordingStartTime || Date.now())
   recordingStartTime = null
@@ -243,7 +325,7 @@ const keyNameToNutKey = (keyName) => {
   return map[keyName] || null
 }
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTarget, colorTolerance }) => {
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
@@ -269,90 +351,134 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
   }
 
   const playOnce = async () => {
-    // ── Color detection: find button before playing ──────────────────────────
-    if (colorTarget) {
-      mainWindow.webContents.send('playback-status', 'SCANNING FOR BUTTON...')
-      let found = null
-      let attempts = 0
-      while (!found && isPlaying && playbackId === myId && attempts < 20) {
-        found = await findColorOnScreen(colorTarget.r, colorTarget.g, colorTarget.b, colorTolerance || 20)
-        if (!found) {
-          await new Promise(r => setTimeout(r, 500))
-          attempts++
+    let currentEvents = [...events]
+
+    // ── Color tracking: shift clicks to where the button actually is ──────────
+    if (colorTracking) {
+      mainWindow.webContents.send('playback-status', 'SCANNING...')
+      const firstColorClick = currentEvents.find(e => e.type === 'mousedown' && e.color)
+      if (firstColorClick) {
+        let found = null
+        let attempts = 0
+        while (!found && isPlaying && playbackId === myId && attempts < 15) {
+          found = await findColorOnScreen(firstColorClick.color.r, firstColorClick.color.g, firstColorClick.color.b, colorTolerance || 25)
+          if (!found) { await new Promise(r => setTimeout(r, 300)); attempts++ }
         }
-      }
-      if (!found) {
-        mainWindow.webContents.send('playback-status', 'COLOR NOT FOUND — SKIPPING LOOP')
-        return 'skip'
-      }
-      // Move mouse to the found color position before replaying
-      // Offset all mousedown/mouseup events relative to found position
-      mainWindow.webContents.send('playback-status', `FOUND AT ${found.x},${found.y}`)
-      // Find the first click in recorded events to compute offset
-      const firstClick = events.find(e => e.type === 'mousedown')
-      if (firstClick) {
-        const offsetX = found.x - firstClick.x
-        const offsetY = found.y - firstClick.y
-        events = events.map(e => {
-          if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup') {
-            return { ...e, x: e.x + offsetX, y: e.y + offsetY }
+        if (found) {
+          const offsetX = found.x - firstColorClick.x
+          const offsetY = found.y - firstColorClick.y
+          if (Math.abs(offsetX) > 2 || Math.abs(offsetY) > 2) {
+            currentEvents = currentEvents.map(e => {
+              if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup') {
+                return { ...e, x: e.x + offsetX, y: e.y + offsetY }
+              }
+              return e
+            })
+            mainWindow.webContents.send('playback-status', `ADJUSTED +${offsetX},+${offsetY}`)
           }
-          return e
-        })
+        } else {
+          mainWindow.webContents.send('playback-status', 'COLOR NOT FOUND — USING ORIGINAL')
+        }
       }
     }
 
     mainWindow.webContents.send('playback-status', 'RUNNING')
 
     // ── Replay events ────────────────────────────────────────────────────────
-    for (let i = 0; i < events.length; i++) {
-      if (!isPlaying || playbackId !== myId) return
-      const event = events[i]
-      const delay = i === 0 ? 0 : (events[i].timestamp - events[i-1].timestamp) / speed
+    // Pre-process: trim trailing mousemoves after last click
+    const lastClickIdx = [...currentEvents].map((e,i) => ({e,i})).filter(({e}) => e.type === 'mouseup').pop()
+    if (lastClickIdx) currentEvents = currentEvents.slice(0, lastClickIdx.i + 1)
+
+    // Pre-process: pair up mousedown+mouseup into atomic clicks
+    // This prevents fast clicks from turning into drags
+    const processedEvents = []
+    for (let i = 0; i < currentEvents.length; i++) {
+      const e = currentEvents[i]
+      if (e.type === 'mousedown') {
+        // Look ahead for the matching mouseup
+        const upIdx = currentEvents.findIndex((u, j) => j > i && u.type === 'mouseup' && u.button === e.button)
+        if (upIdx !== -1) {
+          const up = currentEvents[upIdx]
+          const holdDuration = up.timestamp - e.timestamp
+          // Treat as atomic click — skip the separate mouseup event
+          processedEvents.push({ ...e, type: 'click', holdDuration, upIdx })
+          continue
+        }
+      }
+      // Skip mouseup events that were paired above
+      const alreadyPaired = processedEvents.some(p => p.type === 'click' && p.upIdx === i)
+      if (!alreadyPaired) processedEvents.push(e)
+    }
+
+    const heldKeys = new Set()
+
+    for (let i = 0; i < processedEvents.length; i++) {
+      if (!isPlaying || playbackId !== myId) break
+      const event = processedEvents[i]
+
+      // Delay is based on original timestamps
+      const prevTimestamp = i === 0 ? event.timestamp : processedEvents[i-1].timestamp
+      const delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
       const ok = await waitChunked(Math.max(0, delay))
-      if (!ok) return
+      if (!ok) break
+
       try {
         if (event.type === 'mousemove') {
           await nutjs.mouse.setPosition({ x: event.x, y: event.y })
-        } else if (event.type === 'mousedown') {
+
+        } else if (event.type === 'click') {
+          // Atomic press + hold + release — no drag possible
           await nutjs.mouse.setPosition({ x: event.x, y: event.y })
-          if (event.button === 'left') await nutjs.mouse.pressButton(nutjs.Button.LEFT)
-          else if (event.button === 'right') await nutjs.mouse.pressButton(nutjs.Button.RIGHT)
-        } else if (event.type === 'mouseup') {
-          if (event.button === 'left') await nutjs.mouse.releaseButton(nutjs.Button.LEFT)
-          else if (event.button === 'right') await nutjs.mouse.releaseButton(nutjs.Button.RIGHT)
+          await new Promise(r => setTimeout(r, 15))
+          const btn = event.button === 'left' ? nutjs.Button.LEFT : nutjs.Button.RIGHT
+          await nutjs.mouse.pressButton(btn)
+          // Hold for realistic duration but cap at 300ms so fast clicks stay fast
+          const hold = Math.min(Math.max(event.holdDuration / speed, 30), 300)
+          await new Promise(r => setTimeout(r, hold))
+          await nutjs.mouse.releaseButton(btn)
+          // Small gap after release before next event
+          await new Promise(r => setTimeout(r, 15))
+
         } else if (event.type === 'keydown') {
           const nutKey = keyNameToNutKey(event.key)
-          if (nutKey !== null) await nutjs.keyboard.pressKey(nutKey)
+          if (nutKey !== null) {
+            await nutjs.keyboard.pressKey(nutKey)
+            heldKeys.add(nutKey)
+          }
         } else if (event.type === 'keyup') {
           const nutKey = keyNameToNutKey(event.key)
-          if (nutKey !== null) await nutjs.keyboard.releaseKey(nutKey)
+          if (nutKey !== null) {
+            await nutjs.keyboard.releaseKey(nutKey)
+            heldKeys.delete(nutKey)
+          }
         }
       } catch (e) {}
     }
 
-    if (!isPlaying || playbackId !== myId) return
+    // Always release anything still held
+    try { await nutjs.mouse.releaseButton(nutjs.Button.LEFT) } catch(e) {}
+    try { await nutjs.mouse.releaseButton(nutjs.Button.RIGHT) } catch(e) {}
+    for (const key of heldKeys) {
+      try { await nutjs.keyboard.releaseKey(key) } catch (e) {}
+    }
 
+    if (!isPlaying || playbackId !== myId) return
     loopCount++
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('playback-loop-done', { loopCount })
 
     if (isPlaying && playbackId === myId && loopCount < maxLoops) {
-      // ── Cooldown between loops ─────────────────────────────────────────────
       let waitMs = 0
-      if (cooldown === 'fixed') {
-        waitMs = (cooldownMin || 0) * 1000
-      } else if (cooldown === 'random') {
+      if (cooldown === 'fixed') waitMs = (cooldownMin || 0) * 1000
+      else if (cooldown === 'random') {
         const min = (cooldownMin || 0) * 1000
         const max = (cooldownMax || 5) * 1000
         waitMs = min + Math.random() * (max - min)
       }
-
       if (waitMs > 0) {
         mainWindow.webContents.send('playback-status', `COOLDOWN ${(waitMs/1000).toFixed(1)}s`)
         const ok = await waitChunked(waitMs)
         if (!ok) return
       }
-
       if (isPlaying && playbackId === myId) playOnce()
     } else {
       isPlaying = false
@@ -375,6 +501,9 @@ ipcMain.handle('stop-playback', async () => {
   if (nutjs) {
     try { await nutjs.mouse.releaseButton(nutjs.Button.LEFT) } catch(e) {}
     try { await nutjs.mouse.releaseButton(nutjs.Button.RIGHT) } catch(e) {}
+    for (const key of [nutjs.Key.LeftShift, nutjs.Key.LeftControl, nutjs.Key.LeftAlt]) {
+      try { await nutjs.keyboard.releaseKey(key) } catch(e) {}
+    }
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.restore()

@@ -118,7 +118,13 @@
     {/each}
   </div>
   <!-- Close overlay -->
-  <div class="fixed inset-0 z-40" on:click={() => showThemePicker = false}></div>
+  <div
+  class="fixed inset-0 z-40"
+  role="button"
+  tabindex="0"
+  on:click={() => showThemePicker = false}
+  on:keydown={(e) => e.key === 'Enter' && (showThemePicker = false)}
+  ></div>
 {/if}
 
 <!-- Pages -->
