@@ -11,6 +11,7 @@ let uiohook = null
 let uIOhookInstance = null
 let screenshot = null
 let Jimp = null
+let JimpRead = null
 
 // nut-js
 try {
@@ -30,6 +31,8 @@ try {
 try {
   screenshot = require('screenshot-desktop')
   Jimp = require('jimp')
+  JimpRead = (buf) => Jimp.read(buf)
+  console.log('Jimp loaded OK')
 } catch (e) { console.warn('screenshot-desktop/jimp not available:', e.message) }
 
 function createWindow() {
@@ -118,7 +121,7 @@ function setupUiohookHotkeys() {
     }
   })
 
-  uIOhookInstance.on('mousedown', (e) => {
+  uIOhookInstance.on('mousedown', async (e) => {
     if (!isRecording) return
     const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
     const event = { type: 'mousedown', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
@@ -126,21 +129,23 @@ function setupUiohookHotkeys() {
     recordedEvents.push(event)
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
 
+    // Capture color synchronously — take screenshot and read pixel immediately
     if (screenshot && Jimp) {
-      const captureX = e.x
-      const captureY = e.y
-      const eventRef = event
-      setImmediate(async () => {
-        try {
+      try {
+        // Reuse screenshot if taken within last 500ms (avoid double capture on fast clicks)
+        let img
+        if (recordingScreenshot && recordingScreenshot.age > Date.now() - 500) {
+          img = recordingScreenshot.img
+        } else {
           const imgBuffer = await screenshot({ format: 'png' })
-          const img = await Jimp.read(imgBuffer)
-          const hex = img.getPixelColor(captureX, captureY)
-          const r = (hex >> 24) & 0xff
-          const g = (hex >> 16) & 0xff
-          const b = (hex >> 8)  & 0xff
-          eventRef.color = { r, g, b, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
-        } catch(e) {}
-      })
+          img = await JimpRead(imgBuffer)
+          recordingScreenshot = { img, age: Date.now() }
+        }
+        const hex = img.getPixelColor(e.x, e.y)
+        const { r, g, b } = Jimp.intToRGBA(hex)
+        event.color = { r, g, b, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
+        console.log('Color captured:', event.color.hex, 'at', e.x, e.y)
+      } catch(err) { console.warn('Color capture failed:', err.message) }
     }
   })
 
@@ -159,6 +164,10 @@ ipcMain.handle('set-hotkeys', (_, hotkeys) => {
   return { success: true }
 })
 ipcMain.handle('get-hotkeys', () => store.get('hotkeys', registeredHotkeys))
+
+// Fix DPI scaling so screenshot coords match uiohook coords
+app.commandLine.appendSwitch('high-dpi-support', '1')
+app.commandLine.appendSwitch('force-device-scale-factor', '1')
 
 app.whenReady().then(() => {
   const saved = store.get('hotkeys', null)
@@ -185,17 +194,15 @@ async function findColorOnScreen(targetR, targetG, targetB, tolerance = 20) {
   if (!screenshot || !Jimp) return null
   try {
     const imgBuffer = await screenshot({ format: 'png' })
-    const img = await Jimp.read(imgBuffer)
+    const img = await JimpRead(imgBuffer)
     const w = img.getWidth()
     const h = img.getHeight()
     let bestMatch = null
     let bestDist = Infinity
-    for (let y = 0; y < h; y += 4) {
-      for (let x = 0; x < w; x += 4) {
+    for (let y = 0; y < h; y += 2) {
+      for (let x = 0; x < w; x += 2) {
         const hex = img.getPixelColor(x, y)
-        const r = (hex >> 24) & 0xff
-        const g = (hex >> 16) & 0xff
-        const b = (hex >> 8)  & 0xff
+        const { r, g, b } = Jimp.intToRGBA(hex)
         const dist = Math.sqrt(Math.pow(r-targetR,2)+Math.pow(g-targetG,2)+Math.pow(b-targetB,2))
         if (dist < tolerance && dist < bestDist) { bestDist = dist; bestMatch = { x, y } }
       }
@@ -209,11 +216,9 @@ ipcMain.handle('get-pixel-under-mouse', async () => {
   try {
     const pos = await nutjs.mouse.getPosition()
     const imgBuffer = await screenshot({ format: 'png' })
-    const img = await Jimp.read(imgBuffer)
-    const hex = img.getPixelColor(pos.x, pos.y)
-    const r = (hex >> 24) & 0xff
-    const g = (hex >> 16) & 0xff
-    const b = (hex >> 8)  & 0xff
+    const img = await JimpRead(imgBuffer)
+    const pixelHex = img.getPixelColor(pos.x, pos.y)
+    const { r, g, b } = Jimp.intToRGBA(pixelHex)
     return { r, g, b, x: pos.x, y: pos.y, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
   } catch (e) { return null }
 })
@@ -225,6 +230,8 @@ let recordingStartTime = null
 let lastMousePos = { x: 0, y: 0 }
 let isRecording = false
 
+let recordingScreenshot = null
+
 ipcMain.handle('start-recording', async () => {
   isRecording = false
   if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
@@ -233,6 +240,7 @@ ipcMain.handle('start-recording', async () => {
   recordedEvents = []
   lastMousePos = { x: 0, y: 0 }
   recordingStartTime = Date.now()
+  recordingScreenshot = null
   if (nutjs) {
     recordingInterval = setInterval(async () => {
       if (!isRecording) return
@@ -322,7 +330,15 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
 
     if (colorTracking) {
       mainWindow.webContents.send('playback-status', 'SCANNING...')
-      const firstColorClick = currentEvents.find(e => e.type === 'mousedown' && e.color)
+      // Debug: log all events and their color data
+      console.log('Total events:', currentEvents.length)
+      currentEvents.forEach((e, i) => {
+        if (e.type === 'mousedown' || e.type === 'click') {
+          console.log(`Event ${i} type=${e.type} color=`, e.color || 'NONE')
+        }
+      })
+      const firstColorClick = currentEvents.find(e => (e.type === 'mousedown' || e.type === 'click') && e.color)
+      console.log('firstColorClick:', firstColorClick ? firstColorClick.color : 'NOT FOUND')
       if (firstColorClick) {
         let found = null
         let attempts = 0
@@ -335,7 +351,7 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
           const offsetY = found.y - firstColorClick.y
           if (Math.abs(offsetX) > 2 || Math.abs(offsetY) > 2) {
             currentEvents = currentEvents.map(e => {
-              if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup') {
+              if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup' || e.type === 'click') {
                 return { ...e, x: e.x + offsetX, y: e.y + offsetY }
               }
               return e

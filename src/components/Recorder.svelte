@@ -76,7 +76,8 @@
     state = 'done'
     if (window.electron) {
       const r = await window.electron.stopRecording()
-      recordedEvents = r.events
+      // Always use events from main process — they have color data attached
+      recordedEvents = r.events || recordedEvents
       duration = r.duration
     } else {
       duration = elapsed * 1000
