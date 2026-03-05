@@ -21,6 +21,9 @@
   let colorEnabled = false
   let colorTolerance = 25
 
+  // Smooth movement
+  let smoothMovement = false
+
   // Random delay per click
   let randomDelay = false
   let randomDelayMin = 0
@@ -52,6 +55,7 @@
       colorTolerance,
       randomDelay: randomDelay ? randomDelayMin : 0,
       randomDelayMax: randomDelay ? randomDelayMax : 0,
+      smoothMovement,
     }
 
     if (window.electron) {
@@ -303,6 +307,20 @@
               </div>
             </div>
           {/if}
+        </div>
+
+        <!-- Smooth Movement -->
+        <div class="px-5 py-3" style="border-bottom: 1px solid var(--border)">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-[11px] font-bold tracking-widest uppercase" style="color: var(--text); font-family: var(--font-mono)">SMOOTH MOVEMENT</p>
+              <p class="text-[9px] mt-0.5" style="color: var(--muted); font-family: var(--font-mono)">CURVED BEZIER PATH INSTEAD OF INSTANT TELEPORT</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" bind:checked={smoothMovement} class="w-3.5 h-3.5 cursor-pointer" style="accent-color: var(--accent)"/>
+              <span class="text-[10px] font-bold" style="color: {smoothMovement ? 'var(--accent)' : 'var(--muted)'}; font-family: var(--font-mono)">{smoothMovement ? 'ON' : 'OFF'}</span>
+            </label>
+          </div>
         </div>
 
         <!-- Color Tracking -->

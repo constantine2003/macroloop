@@ -120,20 +120,39 @@
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   }
 
-  function evLabel(ev) {
-    if (ev.type === 'mousemove') return `MOV ${ev.x},${ev.y}`
-    if (ev.type === 'mousedown') return `CLK↓ ${ev.button}`
-    if (ev.type === 'mouseup') return `CLK↑ ${ev.button}`
-    if (ev.type === 'keydown') return `KEY↓ ${ev.key}`
-    if (ev.type === 'keyup') return `KEY↑ ${ev.key}`
-    return ev.type
-  }
+
 
   function evColor(ev) {
     if (ev.type === 'mousemove') return 'var(--accent)'
     if (ev.type.startsWith('mouse')) return 'var(--accent2)'
     return 'var(--accent3)'
   }
+
+  // Simplified event label — no raw coordinate dumps
+  function evLabel(ev) {
+    if (ev.type === 'mousemove') return `MOVE → (${ev.x}, ${ev.y})`
+    if (ev.type === 'mousedown') return `CLICK ${ev.button === 'left' ? '▼' : ev.button === 'right' ? '▼R' : '▼M'} at (${ev.x}, ${ev.y})${ev.color ? ' ●' : ''}`
+    if (ev.type === 'mouseup')   return `CLICK ${ev.button === 'left' ? '▲' : ev.button === 'right' ? '▲R' : '▲M'} at (${ev.x}, ${ev.y})`
+    if (ev.type === 'keydown')   return `KEY ↓ ${ev.key}`
+    if (ev.type === 'keyup')     return `KEY ↑ ${ev.key}`
+    return ev.type
+  }
+
+  // Simplified view: collapse consecutive mousemoves, show only meaningful events
+  $: simplifiedEvents = (() => {
+    const out = []
+    for (let i = 0; i < recordedEvents.length; i++) {
+      const e = recordedEvents[i]
+      if (e.type === 'mousemove') {
+        // Only show the last move before a click, skip the rest
+        const next = recordedEvents.slice(i+1).find(ev => ev.type !== 'mousemove')
+        if (next && (next.type === 'mousedown' || next.type === 'mouseup')) out.push(e)
+      } else {
+        out.push(e)
+      }
+    }
+    return out
+  })()
 
   $: clicks = recordedEvents.filter(e => e.type === 'mousedown').length
   $: keys   = recordedEvents.filter(e => e.type === 'keydown').length
@@ -262,7 +281,7 @@
           <div class="p-2" style="background: var(--bg3); border: 1px solid var(--border)">
             <p class="text-[9px] tracking-[3px] uppercase mb-1.5" style="color: var(--muted); font-family: var(--font-mono)">◆ LIVE FEED</p>
             <div class="flex flex-col gap-1" style="min-height: 44px; max-height: 80px; overflow: hidden">
-              {#each recordedEvents.slice(-4).reverse() as ev, i}
+              {#each simplifiedEvents.slice(-4).reverse() as ev, i}
                 <div class="flex items-center justify-between" style="opacity: {Math.max(0.2, 1 - i * 0.22)}">
                   <span class="text-[10px] font-bold truncate" style="color: {evColor(ev)}; font-family: var(--font-mono)">{evLabel(ev)}</span>
                   <span class="text-[9px] flex-shrink-0 ml-2" style="color: var(--muted); font-family: var(--font-mono)">{ev.timestamp}ms</span>

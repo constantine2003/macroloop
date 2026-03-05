@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Press+Start+2P&family=Pixelify+Sans:wght@400;700&family=Special+Elite&family=Merriweather:wght@400;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -130,8 +130,8 @@
   --glow: none;
   --glow2: none;
   --scroll: #808080;
-  --font-display: 'Arial', sans-serif;
-  --font-mono: 'Courier New', monospace;
+  --font-display: 'MS Sans Serif', 'Arial', sans-serif;
+  --font-mono: 'Fixedsys', 'Courier New', monospace;
   --scanlines: rgba(0,0,0,0);
   --bevel-light: #ffffff;
   --bevel-dark: #808080;
@@ -155,8 +155,8 @@
   --glow: none;
   --glow2: none;
   --scroll: #999999;
-  --font-display: 'Geneva', 'Arial', sans-serif;
-  --font-mono: 'Monaco', 'Courier New', monospace;
+  --font-display: 'Pixelify Sans', 'Geneva', 'Arial', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Monaco', monospace;
   --scanlines: rgba(0,0,0,0);
   --bevel-light: #eeeeee;
   --bevel-dark: #777777;
@@ -165,45 +165,98 @@
   --titlebar-text: #ffffff;
 }
 
-/* MS-DOS Amber CRT */
+/* GEM on Amber Phosphor CRT */
 .theme-dos {
-  --bg: #1a0e00;
-  --bg2: #241400;
-  --bg3: #2e1a00;
-  --border: #7a4a00;
-  --border2: #cc8800;
-  --text: #ffaa00;
-  --muted: #7a4a00;
-  --accent: #ffcc44;
-  --accent2: #ff6600;
-  --accent3: #ffee88;
-  --glow: 0 0 12px rgba(255,170,0,0.6);
-  --glow2: 0 0 12px rgba(255,102,0,0.4);
-  --scroll: #7a4a00;
-  --font-display: 'VT323', monospace;
-  --font-mono: 'VT323', monospace;
-  --scanlines: rgba(0,0,0,0.25);
+  --bg: #b87800;
+  --bg2: #d4920a;
+  --bg3: #f0b020;
+  --border: #5a3800;
+  --border2: #2a1800;
+  --text: #1a0c00;
+  --muted: #6b4000;
+  --accent: #1a0c00;
+  --accent2: #5a1a00;
+  --accent3: #2a4000;
+  --glow: none;
+  --glow2: none;
+  --scroll: #c88a00;
+  --font-display: 'Courier New', monospace;
+  --font-mono: 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0.18);
+  --bevel-light: #f0c040;
+  --bevel-dark: #6b4000;
+  --bevel-darker: #2a1800;
+  --titlebar: #2a1800;
+  --titlebar-text: #f0c040;
 }
 
 /* Windows XP Luna */
 .theme-winxp {
-  --bg: #3a6ea5;
-  --bg2: #ecebe4;
+  --bg: #ecebe4;
+  --bg2: #d4d0c8;
   --bg3: #ffffff;
-  --border: #9db5d7;
+  --border: #a8a098;
   --border2: #316ac5;
   --text: #000000;
-  --muted: #555555;
-  --accent: #316ac5;
-  --accent2: #cc3333;
+  --muted: #6a6a6a;
+  --accent: #cc3333;
+  --accent2: #316ac5;
   --accent3: #2d8c00;
-  --glow: 0 2px 8px rgba(49,106,197,0.4);
-  --glow2: 0 2px 8px rgba(204,51,51,0.3);
-  --scroll: #9db5d7;
-  --font-display: 'Trebuchet MS', 'Arial', sans-serif;
-  --font-mono: 'Courier New', monospace;
+  --glow: 0 2px 6px rgba(0,0,0,0.2);
+  --glow2: 0 2px 6px rgba(204,51,51,0.3);
+  --scroll: #c0bdb4;
+  --font-display: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --font-mono: 'Lucida Console', 'Courier New', monospace;
   --scanlines: rgba(0,0,0,0);
   --titlebar: linear-gradient(to bottom, #4d90d5 0%, #2169c0 90%, #1a5aad 100%);
+  --titlebar-text: #ffffff;
+  --bevel-light: #ffffff;
+  --bevel-dark: #a8a098;
+  --bevel-darker: #6a6a6a;
+}
+
+
+/* ── BIOS/UEFI Setup Screen (AMI/Award style) ────────────── */
+.theme-bios {
+  --bg: #0000aa;
+  --bg2: #0000cc;
+  --bg3: #000088;
+  --border: #aaaaaa;
+  --border2: #ffffff;
+  --text: #ffffff;
+  --muted: #aaaaaa;
+  --accent: #ffff55;
+  --accent2: #55ffff;
+  --accent3: #55ff55;
+  --glow: none;
+  --glow2: none;
+  --scroll: #aaaaaa;
+  --font-display: 'Courier New', monospace;
+  --font-mono: 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0);
+  --titlebar: #aaaaaa;
+  --titlebar-text: #0000aa;
+}
+
+/* ── Teletext (BBC/ITV broadcast style) ──────────────────── */
+.theme-teletext {
+  --bg: #000000;
+  --bg2: #000066;
+  --bg3: #000000;
+  --border: #00aaaa;
+  --border2: #ffffff;
+  --text: #ffffff;
+  --muted: #aaaaaa;
+  --accent: #00ff00;
+  --accent2: #ff5555;
+  --accent3: #ffff55;
+  --glow: none;
+  --glow2: none;
+  --scroll: #00aaaa;
+  --font-display: 'Courier New', monospace;
+  --font-mono: 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0);
+  --titlebar: #ff0000;
   --titlebar-text: #ffffff;
 }
 
@@ -278,9 +331,69 @@ body::after {
   color: var(--titlebar-text) !important;
 }
 
-/* WinXP: pill/rounded buttons */
-.theme-winxp button {
+/* GEM Amber CRT: amber desktop, chunky dark borders, beveled panels */
+.theme-dos button,
+.theme-dos select,
+.theme-dos input[type="text"],
+.theme-dos input[type="number"] {
+  border-top: 2px solid var(--bevel-light) !important;
+  border-left: 2px solid var(--bevel-light) !important;
+  border-right: 2px solid var(--bevel-dark) !important;
+  border-bottom: 2px solid var(--bevel-dark) !important;
+  border-radius: 0 !important;
+  box-shadow: 1px 1px 0 var(--bevel-darker) !important;
+}
+.theme-dos button:active {
+  border-top: 2px solid var(--bevel-dark) !important;
+  border-left: 2px solid var(--bevel-dark) !important;
+  border-right: 2px solid var(--bevel-light) !important;
+  border-bottom: 2px solid var(--bevel-light) !important;
+}
+/* GEM Amber titlebar */
+.theme-dos [style*="-webkit-app-region: drag"] {
+  background: var(--titlebar) !important;
+  color: var(--titlebar-text) !important;
+}
+/* GEM Amber scrollbar */
+.theme-dos ::-webkit-scrollbar { width: 16px; }
+.theme-dos ::-webkit-scrollbar-thumb {
+  background: var(--bg2);
+  border-top: 2px solid var(--bevel-light);
+  border-left: 2px solid var(--bevel-light);
+  border-right: 2px solid var(--bevel-dark);
+  border-bottom: 2px solid var(--bevel-dark);
+  border-radius: 0;
+}
+.theme-dos ::-webkit-scrollbar-track { background: var(--bevel-dark); }
+
+/* WinXP: raised gray buttons with blue hover — exclude overlay/close buttons */
+.theme-winxp button:not([aria-label="Close theme picker"]):not(.titlebar-btn) {
   border-radius: 3px !important;
+  background: #d4d0c8 !important;
+  border: 1px solid #a8a098 !important;
+  border-top-color: #ffffff !important;
+  border-left-color: #ffffff !important;
+  color: #000000 !important;
+  box-shadow: 1px 1px 0 #6a6a6a !important;
+}
+.theme-winxp button:not([aria-label="Close theme picker"]):hover {
+  background: #dde8f8 !important;
+  border-color: #316ac5 !important;
+  color: #000000 !important;
+}
+.theme-winxp button:not([aria-label="Close theme picker"]):active {
+  border-top-color: #a8a098 !important;
+  border-left-color: #a8a098 !important;
+  border-bottom-color: #ffffff !important;
+  border-right-color: #ffffff !important;
+  background: #c0bdb4 !important;
+}
+/* WinXP: titlebar buttons stay styled naturally */
+.theme-winxp [style*="-webkit-app-region: no-drag"] button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
 }
 
 /* DOS: bigger chunky font */
@@ -307,3 +420,97 @@ body::after {
 .theme-macos9 ::-webkit-scrollbar-track {
   background: var(--border);
 }
+
+/* ── RETRO THEME FONT OVERRIDES ─────────────────────────── */
+/* Force each theme's fonts to apply everywhere, not just body */
+.theme-win95 *, .theme-win95 [style*="font-family"] {
+  font-family: 'MS Sans Serif', 'Arial', sans-serif !important;
+}
+.theme-win95 [style*="font-mono"], .theme-win95 input, .theme-win95 select {
+  font-family: 'Fixedsys', 'Courier New', monospace !important;
+}
+.theme-macos9 *, .theme-macos9 [style*="font-family"] {
+  font-family: 'Pixelify Sans', 'Geneva', 'Arial', sans-serif !important;
+}
+.theme-macos9 [style*="font-mono"], .theme-macos9 input, .theme-macos9 select {
+  font-family: 'IBM Plex Mono', 'Monaco', monospace !important;
+}
+.theme-dos *, .theme-dos [style*="font-family"] {
+  font-family: 'Courier New', monospace !important;
+}
+.theme-winxp *, .theme-winxp [style*="font-family"] {
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif !important;
+}
+.theme-winxp [style*="font-mono"], .theme-winxp input, .theme-winxp select {
+  font-family: 'Lucida Console', 'Courier New', monospace !important;
+}
+
+/* ── BIOS THEME STYLES ───────────────────────────────────── */
+.theme-bios * { font-family: 'Courier New', monospace !important; border-radius: 0 !important; }
+
+/* BIOS titlebar: gray bar with blue text */
+.theme-bios [style*="-webkit-app-region: drag"] {
+  background: #aaaaaa !important;
+  color: #0000aa !important;
+  font-weight: bold !important;
+}
+/* BIOS titlebar buttons stay readable */
+.theme-bios [style*="-webkit-app-region: no-drag"] button {
+  background: #aaaaaa !important;
+  color: #0000aa !important;
+  border: 1px solid #000066 !important;
+  box-shadow: none !important;
+}
+/* BIOS: highlight on hover — ONLY real UI buttons, not overlay */
+.theme-bios button:not([aria-label="Close theme picker"]):hover {
+  background: #aaaaaa !important;
+  color: #0000aa !important;
+  border-color: #ffffff !important;
+}
+/* BIOS: theme picker dropdown stays legible */
+.theme-bios .z-50 {
+  background: #0000aa !important;
+  border: 2px solid #aaaaaa !important;
+}
+.theme-bios .z-50 button { color: #aaaaaa !important; background: transparent !important; border-color: transparent !important; }
+.theme-bios .z-50 button:hover { background: #aaaaaa !important; color: #0000aa !important; }
+/* BIOS scrollbar */
+.theme-bios ::-webkit-scrollbar { width: 8px; }
+.theme-bios ::-webkit-scrollbar-thumb { background: #aaaaaa; }
+.theme-bios ::-webkit-scrollbar-track { background: #000066; }
+
+/* ── TELETEXT THEME STYLES ───────────────────────────────── */
+.theme-teletext * { font-family: 'Courier New', monospace !important; border-radius: 0 !important; letter-spacing: 0.06em; }
+
+/* Teletext titlebar: red strip */
+.theme-teletext [style*="-webkit-app-region: drag"] {
+  background: #ff0000 !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+/* Teletext titlebar buttons */
+.theme-teletext [style*="-webkit-app-region: no-drag"] button {
+  background: #ff0000 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+/* Teletext: hover — only real UI buttons */
+.theme-teletext button:not([aria-label="Close theme picker"]):hover {
+  background: #aa00aa !important;
+  color: #ffffff !important;
+  border-color: #ffffff !important;
+}
+/* Teletext: theme picker dropdown stays legible — fixed colors, no hover bleed */
+.theme-teletext .z-50 {
+  background: #000066 !important;
+  border: 2px solid #ffffff !important;
+}
+.theme-teletext .z-50 button { color: #ffffff !important; background: transparent !important; border-color: transparent !important; }
+.theme-teletext .z-50 button:hover { background: #aa00aa !important; color: #ffffff !important; border-color: transparent !important; }
+/* Teletext: close overlay is invisible */
+.theme-teletext button[aria-label="Close theme picker"] { background: transparent !important; }
+/* Teletext scrollbar */
+.theme-teletext ::-webkit-scrollbar { width: 12px; }
+.theme-teletext ::-webkit-scrollbar-thumb { background: #00aaaa; }
+.theme-teletext ::-webkit-scrollbar-track { background: #000044; }

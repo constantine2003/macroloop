@@ -296,7 +296,24 @@ ipcMain.handle('stop-recording', async () => {
   if (mainWindow) { mainWindow.restore(); mainWindow.focus() }
   const duration = Date.now() - (recordingStartTime || Date.now())
   recordingStartTime = null
-  return { events: recordedEvents, duration }
+
+  // Consolidate: remove all mousemove events EXCEPT the last one before each click
+  const consolidated = []
+  for (let i = 0; i < recordedEvents.length; i++) {
+    const e = recordedEvents[i]
+    if (e.type === 'mousemove') {
+      // Only keep this mousemove if the next non-mousemove event is a click
+      const nextAction = recordedEvents.slice(i + 1).find(ev => ev.type !== 'mousemove')
+      if (nextAction && (nextAction.type === 'mousedown' || nextAction.type === 'mouseup')) {
+        consolidated.push(e) // keep last move before click
+      }
+      // otherwise drop it
+    } else {
+      consolidated.push(e)
+    }
+  }
+  console.log(`Consolidated: ${recordedEvents.length} → ${consolidated.length} events`)
+  return { events: consolidated, duration }
 })
 
 // ─── Playback ─────────────────────────────────────────────────────────────────
@@ -330,7 +347,7 @@ const keyNameToNutKey = (keyName) => {
   return map[keyName] || null
 }
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax }) => {
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax, smoothMovement }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
@@ -444,9 +461,43 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
       if (!ok) break
       try {
         if (event.type === 'mousemove') {
-          await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          if (smoothMovement) {
+            // Smooth curved movement using bezier interpolation
+            const cur = await nutjs.mouse.getPosition()
+            const steps = Math.max(8, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
+            for (let s = 1; s <= steps; s++) {
+              if (!isPlaying || playbackId !== myId) break
+              const t = s / steps
+              // Ease in-out curve
+              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+              // Slight arc via control point offset
+              const cpx = (cur.x + event.x) / 2 + (event.y - cur.y) * 0.15
+              const cpy = (cur.y + event.y) / 2 - (event.x - cur.x) * 0.15
+              const bx = Math.round((1-ease)*(1-ease)*cur.x + 2*(1-ease)*ease*cpx + ease*ease*event.x)
+              const by = Math.round((1-ease)*(1-ease)*cur.y + 2*(1-ease)*ease*cpy + ease*ease*event.y)
+              await nutjs.mouse.setPosition({ x: bx, y: by })
+              await new Promise(r => setTimeout(r, 8))
+            }
+          } else {
+            await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          }
         } else if (event.type === 'click') {
-          await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          if (smoothMovement) {
+            const cur = await nutjs.mouse.getPosition()
+            const steps = Math.max(6, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
+            for (let s = 1; s <= steps; s++) {
+              if (!isPlaying || playbackId !== myId) break
+              const t = s / steps
+              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+              await nutjs.mouse.setPosition({
+                x: Math.round(cur.x + (event.x - cur.x) * ease),
+                y: Math.round(cur.y + (event.y - cur.y) * ease)
+              })
+              await new Promise(r => setTimeout(r, 8))
+            }
+          } else {
+            await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          }
           await new Promise(r => setTimeout(r, 15))
           const btn = event.button === 'left' ? nutjs.Button.LEFT : nutjs.Button.RIGHT
           await nutjs.mouse.pressButton(btn)
