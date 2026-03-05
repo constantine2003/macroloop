@@ -3,6 +3,7 @@
   import Recorder from './components/Recorder.svelte'
   import Player from './components/Player.svelte'
   import MacroList from './components/MacroList.svelte'
+  import ScriptEditor from './components/ScriptEditor.svelte'
 
   let page = 'home'
   let macros = []
@@ -11,11 +12,17 @@
   let showThemePicker = false
 
   const themes = [
-    { id: 'cyber',    label: 'CYBER',    desc: 'Neon dark',     dot: '#00ffcc' },
-    { id: 'bubble',   label: 'BUBBLE',   desc: 'Y2K pink',      dot: '#ff3399' },
-    { id: 'terminal', label: 'TERMINAL', desc: 'Green CRT',     dot: '#00ff41' },
-    { id: 'vapor',    label: 'VAPOR',    desc: 'Synthwave',     dot: '#ff6600' },
-    { id: 'clean',    label: 'CLEAN',    desc: 'Light minimal', dot: '#3355ff' },
+    { id: 'cyber',    label: 'CYBER',    desc: 'Neon dark',      dot: '#00ffcc' },
+    { id: 'bubble',   label: 'BUBBLE',   desc: 'Y2K pink',       dot: '#ff3399' },
+    { id: 'terminal', label: 'TERMINAL', desc: 'Green CRT',      dot: '#00ff41' },
+    { id: 'vapor',    label: 'VAPOR',    desc: 'Synthwave',      dot: '#ff6600' },
+    { id: 'clean',    label: 'CLEAN',    desc: 'Light minimal',  dot: '#3355ff' },
+    { id: 'win95',    label: 'WIN95',    desc: 'Windows 95/98',  dot: '#000080' },
+    { id: 'macos9',   label: 'MACOS 9',  desc: 'Mac OS Platinum',dot: '#333399' },
+    { id: 'dos',      label: 'GEM CRT',  desc: 'Amber phosphor', dot: '#d4920a' },
+    { id: 'winxp',    label: 'WIN XP',   desc: 'Luna blue',      dot: '#316ac5' },
+    { id: 'bios',     label: 'BIOS',     desc: 'AMI/Award setup', dot: '#aaaaaa' },
+    { id: 'teletext', label: 'TELETEXT', desc: 'BBC broadcast TV', dot: '#00ff00' },
   ]
 
   onMount(async () => {
@@ -57,6 +64,15 @@
     page = 'macros'
   }
 
+  async function handleRenameMacro(e) {
+    const { id, name } = e.detail
+    const macro = macros.find(m => m.id === id)
+    if (!macro) return
+    const updated = { ...macro, name }
+    if (window.electron) await window.electron.saveMacro(updated)
+    await loadMacros()
+  }
+
   async function handleDeleteMacro(e) {
     if (window.electron) await window.electron.deleteMacro(e.detail.id)
     if (selectedMacro?.id === e.detail.id) selectedMacro = null
@@ -67,6 +83,21 @@
     selectedMacro = e.detail
     page = 'play'
   }
+
+  async function handleExportMacro(e) {
+    if (window.electron) await window.electron.exportMacro(e.detail)
+  }
+
+  async function handleImportMacro() {
+    if (!window.electron) return
+    const result = await window.electron.importMacro()
+    if (result.success && result.macros.length) {
+      for (const macro of result.macros) {
+        await window.electron.saveMacro(macro)
+      }
+      await loadMacros()
+    }
+  }
 </script>
 
 <!-- Window chrome -->
@@ -76,7 +107,7 @@
     <div class="w-4 h-4 rounded-sm flex items-center justify-center" style="background: var(--accent)">
       <span class="block w-1.5 h-1.5 rounded-full" style="background: var(--bg)"></span>
     </div>
-    <span class="text-[11px] font-bold tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-mono)">MacroLoop v1.0</span>
+    <span class="text-[11px] font-bold tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-mono)">MacroLoop v1.3</span>
   </div>
   <div class="flex items-center gap-1" style="-webkit-app-region: no-drag">
     <!-- Theme picker trigger -->
@@ -118,13 +149,7 @@
     {/each}
   </div>
   <!-- Close overlay -->
-  <div
-  class="fixed inset-0 z-40"
-  role="button"
-  tabindex="0"
-  on:click={() => showThemePicker = false}
-  on:keydown={(e) => e.key === 'Enter' && (showThemePicker = false)}
-  ></div>
+  <button class="fixed inset-0 z-40" on:click={() => showThemePicker = false} aria-label="Close theme picker" style="background: transparent; border: none; cursor: default"></button>
 {/if}
 
 <!-- Pages -->
@@ -141,19 +166,20 @@
           MACRO<span style="color: var(--accent2)">LOOP</span>
         </div>
         <div class="text-[11px] tracking-[6px] uppercase" style="color: var(--muted); font-family: var(--font-mono)">
-          Game Automation System v1.0
+          Game Automation System v1.3
         </div>
       </div>
 
       <!-- 3 big nav cards -->
-      <div class="grid grid-cols-3 gap-4 w-full max-w-2xl">
+      <div class="grid grid-cols-2 gap-4 w-full max-w-2xl" style="grid-auto-rows: 1fr">
         {#each [
           { id: 'record', label: 'RECORD', sub: 'Capture inputs', icon: '⬤', key: 'F6' },
           { id: 'play',   label: 'PLAY',   sub: 'Run macros',    icon: '▶', key: 'F7' },
           { id: 'macros', label: 'MACROS', sub: macros.length + ' saved', icon: '▦', key: null },
+          { id: 'scripts', label: 'SCRIPTS', sub: 'Logic & conditions', icon: '⬡', key: null },
         ] as card}
           <button on:click={() => page = card.id}
-            class="group flex flex-col items-center gap-4 py-8 px-4 transition-all relative overflow-hidden"
+            class="group flex flex-col items-center gap-4 py-8 px-4 transition-all relative overflow-hidden h-full"
             style="background: var(--bg2); border: 1px solid var(--border); cursor: pointer"
             on:mouseenter={(e) => e.currentTarget.style.borderColor = 'var(--border2)'}
             on:mouseleave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
@@ -191,7 +217,10 @@
     <Player macro={selectedMacro} {macros} on:select={handleSelectMacro} on:back={() => page = 'home'} />
 
   {:else if page === 'macros'}
-    <MacroList {macros} on:select={handleSelectMacro} on:delete={handleDeleteMacro} on:back={() => page = 'home'} />
+    <MacroList {macros} on:select={handleSelectMacro} on:delete={handleDeleteMacro} on:rename={handleRenameMacro} on:export={handleExportMacro} on:import={handleImportMacro} on:back={() => page = 'home'} />
+
+  {:else if page === 'scripts'}
+    <ScriptEditor {macros} on:back={() => page = 'home'} />
   {/if}
 
 </div>

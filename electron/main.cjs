@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron')
+const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron')
 const path = require('path')
 const Store = require('electron-store')
 
@@ -126,27 +126,20 @@ function setupUiohookHotkeys() {
     const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
     const event = { type: 'mousedown', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
 
-    recordedEvents.push(event)
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-
-    // Capture color synchronously — take screenshot and read pixel immediately
+    // Capture color BEFORE pushing event so it's always attached
     if (screenshot && Jimp) {
       try {
-        // Reuse screenshot if taken within last 500ms (avoid double capture on fast clicks)
-        let img
-        if (recordingScreenshot && recordingScreenshot.age > Date.now() - 500) {
-          img = recordingScreenshot.img
-        } else {
-          const imgBuffer = await screenshot({ format: 'png' })
-          img = await JimpRead(imgBuffer)
-          recordingScreenshot = { img, age: Date.now() }
-        }
-        const hex = img.getPixelColor(e.x, e.y)
-        const { r, g, b } = Jimp.intToRGBA(hex)
+        const imgBuffer = await screenshot({ format: 'png' })
+        const img = await JimpRead(imgBuffer)
+        const pixelHex = img.getPixelColor(e.x, e.y)
+        const { r, g, b } = Jimp.intToRGBA(pixelHex)
         event.color = { r, g, b, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
         console.log('Color captured:', event.color.hex, 'at', e.x, e.y)
       } catch(err) { console.warn('Color capture failed:', err.message) }
     }
+
+    recordedEvents.push(event)
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
   })
 
   uIOhookInstance.on('mouseup', (e) => {
@@ -211,6 +204,42 @@ async function findColorOnScreen(targetR, targetG, targetB, tolerance = 20) {
   } catch (e) { return null }
 }
 
+// Pick color from screen — countdown then captures pixel under mouse
+ipcMain.handle('pick-color-from-screen', async () => {
+  // Send countdown ticks to renderer so UI can show "3... 2... 1..."
+  if (mainWindow) mainWindow.restore()
+  for (let i = 3; i >= 1; i--) {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('color-pick-countdown', i)
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  if (!mainWindow.isDestroyed()) mainWindow.webContents.send('color-pick-countdown', 0)
+
+  // Minimize so we can see the screen cleanly, then capture
+  if (mainWindow) mainWindow.minimize()
+  await new Promise(r => setTimeout(r, 300))
+
+  try {
+    const pos = screen.getCursorScreenPoint()
+    const imgBuffer = await screenshot({ format: 'png' })
+    const img = await JimpRead(imgBuffer)
+    const { width: imgW } = img.bitmap
+    const { width: screenW } = screen.getPrimaryDisplay().bounds
+    const scale = imgW / screenW
+    const sx = Math.round(pos.x * scale)
+    const sy = Math.round(pos.y * scale)
+    const pixelHex = img.getPixelColor(sx, sy)
+    const { r, g, b } = Jimp.intToRGBA(pixelHex)
+    const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('')
+    if (mainWindow) mainWindow.restore()
+    console.log('Screen color picked:', hex, 'at', pos.x, pos.y)
+    return { r, g, b, hex, x: pos.x, y: pos.y }
+  } catch(err) {
+    console.warn('Color pick failed:', err.message)
+    if (mainWindow) mainWindow.restore()
+    return null
+  }
+})
+
 ipcMain.handle('get-pixel-under-mouse', async () => {
   if (!nutjs || !screenshot || !Jimp) return null
   try {
@@ -267,7 +296,24 @@ ipcMain.handle('stop-recording', async () => {
   if (mainWindow) { mainWindow.restore(); mainWindow.focus() }
   const duration = Date.now() - (recordingStartTime || Date.now())
   recordingStartTime = null
-  return { events: recordedEvents, duration }
+
+  // Consolidate: remove all mousemove events EXCEPT the last one before each click
+  const consolidated = []
+  for (let i = 0; i < recordedEvents.length; i++) {
+    const e = recordedEvents[i]
+    if (e.type === 'mousemove') {
+      // Only keep this mousemove if the next non-mousemove event is a click
+      const nextAction = recordedEvents.slice(i + 1).find(ev => ev.type !== 'mousemove')
+      if (nextAction && (nextAction.type === 'mousedown' || nextAction.type === 'mouseup')) {
+        consolidated.push(e) // keep last move before click
+      }
+      // otherwise drop it
+    } else {
+      consolidated.push(e)
+    }
+  }
+  console.log(`Consolidated: ${recordedEvents.length} → ${consolidated.length} events`)
+  return { events: consolidated, duration }
 })
 
 // ─── Playback ─────────────────────────────────────────────────────────────────
@@ -301,7 +347,7 @@ const keyNameToNutKey = (keyName) => {
   return map[keyName] || null
 }
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance }) => {
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax, smoothMovement }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
@@ -330,34 +376,49 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
 
     if (colorTracking) {
       mainWindow.webContents.send('playback-status', 'SCANNING...')
-      // Debug: log all events and their color data
-      console.log('Total events:', currentEvents.length)
-      currentEvents.forEach((e, i) => {
-        if (e.type === 'mousedown' || e.type === 'click') {
-          console.log(`Event ${i} type=${e.type} color=`, e.color || 'NONE')
-        }
-      })
-      const firstColorClick = currentEvents.find(e => (e.type === 'mousedown' || e.type === 'click') && e.color)
-      console.log('firstColorClick:', firstColorClick ? firstColorClick.color : 'NOT FOUND')
-      if (firstColorClick) {
-        let found = null
-        let attempts = 0
-        while (!found && isPlaying && playbackId === myId && attempts < 15) {
-          found = await findColorOnScreen(firstColorClick.color.r, firstColorClick.color.g, firstColorClick.color.b, colorTolerance || 25)
-          if (!found) { await new Promise(r => setTimeout(r, 300)); attempts++ }
-        }
-        if (found) {
-          const offsetX = found.x - firstColorClick.x
-          const offsetY = found.y - firstColorClick.y
-          if (Math.abs(offsetX) > 2 || Math.abs(offsetY) > 2) {
-            currentEvents = currentEvents.map(e => {
-              if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup' || e.type === 'click') {
-                return { ...e, x: e.x + offsetX, y: e.y + offsetY }
-              }
-              return e
-            })
+
+      // Per-click color tracking — each click with a color finds its OWN position
+      // independently so buttons that move to different spots are all handled
+      const resolvedClicks = new Map() // event index -> { x, y }
+
+      for (let i = 0; i < currentEvents.length; i++) {
+        const e = currentEvents[i]
+        if ((e.type === 'mousedown' || e.type === 'click') && e.color) {
+          let found = null
+          let attempts = 0
+          while (!found && isPlaying && playbackId === myId && attempts < 10) {
+            found = await findColorOnScreen(e.color.r, e.color.g, e.color.b, colorTolerance || 25)
+            if (!found) { await new Promise(r => setTimeout(r, 200)); attempts++ }
+          }
+          if (found) {
+            console.log(`Click ${i} color ${e.color.hex} found at ${found.x},${found.y} (was ${e.x},${e.y})`)
+            resolvedClicks.set(i, found)
+          } else {
+            console.log(`Click ${i} color ${e.color.hex} NOT found — using original position`)
           }
         }
+      }
+
+      // Apply per-click resolved positions
+      if (resolvedClicks.size > 0) {
+        currentEvents = currentEvents.map((e, i) => {
+          if (resolvedClicks.has(i)) {
+            const pos = resolvedClicks.get(i)
+            // Find the matching mouseup and shift it too
+            return { ...e, x: pos.x, y: pos.y }
+          }
+          // Shift mouseup to match its paired mousedown
+          if (e.type === 'mouseup') {
+            // Find previous mousedown for this button
+            for (let j = i - 1; j >= 0; j--) {
+              if (currentEvents[j].type === 'mousedown' && currentEvents[j].button === e.button && resolvedClicks.has(j)) {
+                const pos = resolvedClicks.get(j)
+                return { ...e, x: pos.x, y: pos.y }
+              }
+            }
+          }
+          return e
+        })
       }
     }
 
@@ -390,14 +451,53 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
       if (!isPlaying || playbackId !== myId) break
       const event = processedEvents[i]
       const prevTimestamp = i === 0 ? event.timestamp : processedEvents[i-1].timestamp
-      const delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
+      let delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
+      // Add random human-like jitter per event
+      if (randomDelay && i > 0) {
+        const jitter = Math.random() * ((randomDelayMax || 200) - (randomDelay || 0)) + (randomDelay || 0)
+        delay += jitter
+      }
       const ok = await waitChunked(Math.max(0, delay))
       if (!ok) break
       try {
         if (event.type === 'mousemove') {
-          await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          if (smoothMovement) {
+            // Smooth curved movement using bezier interpolation
+            const cur = await nutjs.mouse.getPosition()
+            const steps = Math.max(8, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
+            for (let s = 1; s <= steps; s++) {
+              if (!isPlaying || playbackId !== myId) break
+              const t = s / steps
+              // Ease in-out curve
+              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+              // Slight arc via control point offset
+              const cpx = (cur.x + event.x) / 2 + (event.y - cur.y) * 0.15
+              const cpy = (cur.y + event.y) / 2 - (event.x - cur.x) * 0.15
+              const bx = Math.round((1-ease)*(1-ease)*cur.x + 2*(1-ease)*ease*cpx + ease*ease*event.x)
+              const by = Math.round((1-ease)*(1-ease)*cur.y + 2*(1-ease)*ease*cpy + ease*ease*event.y)
+              await nutjs.mouse.setPosition({ x: bx, y: by })
+              await new Promise(r => setTimeout(r, 8))
+            }
+          } else {
+            await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          }
         } else if (event.type === 'click') {
-          await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          if (smoothMovement) {
+            const cur = await nutjs.mouse.getPosition()
+            const steps = Math.max(6, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
+            for (let s = 1; s <= steps; s++) {
+              if (!isPlaying || playbackId !== myId) break
+              const t = s / steps
+              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+              await nutjs.mouse.setPosition({
+                x: Math.round(cur.x + (event.x - cur.x) * ease),
+                y: Math.round(cur.y + (event.y - cur.y) * ease)
+              })
+              await new Promise(r => setTimeout(r, 8))
+            }
+          } else {
+            await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          }
           await new Promise(r => setTimeout(r, 15))
           const btn = event.button === 'left' ? nutjs.Button.LEFT : nutjs.Button.RIGHT
           await nutjs.mouse.pressButton(btn)
@@ -471,6 +571,66 @@ ipcMain.handle('stop-playback', async () => {
   return { success: true }
 })
 
+// ─── Script Storage ───────────────────────────────────────────────────────────
+// ─── Script Export / Import ───────────────────────────────────────────────────
+ipcMain.handle('export-script', async (_, script) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Script',
+    defaultPath: `${script.name}.json`,
+    filters: [{ name: 'MacroLoop Script', extensions: ['json'] }]
+  })
+  if (canceled || !filePath) return { success: false }
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(script, null, 2))
+    return { success: true }
+  } catch(e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('import-script', async () => {
+  const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Script',
+    filters: [{ name: 'MacroLoop Script', extensions: ['json'] }],
+    properties: ['openFile', 'multiSelections']
+  })
+  if (canceled || !filePaths.length) return { success: false, scripts: [] }
+  try {
+    const scripts = filePaths.map(fp => {
+      const data = JSON.parse(fs.readFileSync(fp, 'utf8'))
+      return { ...data, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }
+    })
+    return { success: true, scripts }
+  } catch(e) { return { success: false, error: e.message, scripts: [] } }
+})
+
+ipcMain.handle('save-script', async (_, script) => {
+  const scripts = store.get('scripts', [])
+  const existing = scripts.findIndex(s => s.id === script.id)
+  if (existing >= 0) scripts[existing] = script
+  else scripts.push(script)
+  store.set('scripts', scripts)
+  return { success: true }
+})
+ipcMain.handle('load-scripts', async () => store.get('scripts', []))
+ipcMain.handle('delete-script', async (_, id) => {
+  store.set('scripts', store.get('scripts', []).filter(s => s.id !== id))
+  return { success: true }
+})
+
+// ─── Click At (for scripts) ──────────────────────────────────────────────────
+ipcMain.handle('click-at', async (_, { x, y }) => {
+  if (!nutjs) return { success: false }
+  try {
+    await nutjs.mouse.setPosition({ x, y })
+    await nutjs.mouse.leftClick()
+    return { success: true }
+  } catch(e) { return { success: false, error: e.message } }
+})
+
+// ─── Color Scan (for scripts) ─────────────────────────────────────────────────
+ipcMain.handle('scan-for-color', async (_, { r, g, b, tolerance }) => {
+  return findColorOnScreen(r, g, b, tolerance)
+})
+
 // ─── Macro Storage ────────────────────────────────────────────────────────────
 ipcMain.handle('save-macro', async (_, macro) => {
   const macros = store.get('macros', [])
@@ -484,6 +644,40 @@ ipcMain.handle('load-macros', async () => store.get('macros', []))
 ipcMain.handle('delete-macro', async (_, id) => {
   store.set('macros', store.get('macros', []).filter(m => m.id !== id))
   return { success: true }
+})
+
+// ─── Export / Import ─────────────────────────────────────────────────────────
+const { dialog } = require('electron')
+const fs = require('fs')
+
+ipcMain.handle('export-macro', async (_, macro) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Macro',
+    defaultPath: `${macro.name}.json`,
+    filters: [{ name: 'MacroLoop Macro', extensions: ['json'] }]
+  })
+  if (canceled || !filePath) return { success: false }
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(macro, null, 2))
+    return { success: true }
+  } catch (e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('import-macro', async () => {
+  const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Macro',
+    filters: [{ name: 'MacroLoop Macro', extensions: ['json'] }],
+    properties: ['openFile', 'multiSelections']
+  })
+  if (canceled || !filePaths.length) return { success: false, macros: [] }
+  try {
+    const macros = filePaths.map(fp => {
+      const data = JSON.parse(fs.readFileSync(fp, 'utf8'))
+      // Ensure fresh ID on import so it doesn't overwrite existing
+      return { ...data, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }
+    })
+    return { success: true, macros }
+  } catch (e) { return { success: false, error: e.message, macros: [] } }
 })
 
 // ─── Window Controls ──────────────────────────────────────────────────────────
