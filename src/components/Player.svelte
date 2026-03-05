@@ -21,6 +21,11 @@
   let colorEnabled = false
   let colorTolerance = 25
 
+  // Random delay per click
+  let randomDelay = false
+  let randomDelayMin = 0
+  let randomDelayMax = 200
+
   onMount(() => {
     window.electron?.onPlaybackLoopDone((d) => { loopCount = d.loopCount })
     window.electron?.onPlaybackFinished(() => { state = 'idle'; loopCount = 0; playbackStatus = 'IDLE' })
@@ -45,6 +50,8 @@
       cooldownMax,
       colorTracking: colorEnabled,
       colorTolerance,
+      randomDelay: randomDelay ? randomDelayMin : 0,
+      randomDelayMax: randomDelay ? randomDelayMax : 0,
     }
 
     if (window.electron) {
@@ -68,6 +75,12 @@
 
   function fmt(ms) {
     return !ms ? '0s' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+  }
+
+  function getMacroColor(macro) {
+    if (!macro?.events) return null
+    const click = macro.events.find(e => (e.type === 'mousedown' || e.type === 'click') && e.color)
+    return click ? click.color.hex : null
   }
 </script>
 
@@ -109,7 +122,14 @@
                 style="background: var(--bg3); border: 1px solid var(--border)"
                 on:mouseenter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
                 on:mouseleave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}>
-                <span class="text-[11px] font-bold tracking-wider" style="color: var(--text); font-family: var(--font-mono)">{m.name}</span>
+                <div class="flex items-center gap-2">
+                  {#if getMacroColor(m)}
+                    <div class="w-2 h-2 rounded-full" style="background: {getMacroColor(m)}; box-shadow: 0 0 4px {getMacroColor(m)}"></div>
+                  {:else}
+                    <div class="w-2 h-2 rounded-full" style="background: var(--border2)"></div>
+                  {/if}
+                  <span class="text-[11px] font-bold tracking-wider" style="color: var(--text); font-family: var(--font-mono)">{m.name}</span>
+                </div>
                 <span class="text-[10px]" style="color: var(--muted); font-family: var(--font-mono)">{m.eventCount} EVT</span>
               </button>
             {/each}
@@ -121,7 +141,18 @@
       <!-- Macro loaded -->
       <div class="p-4 flex items-center justify-between" style="background: var(--bg2); border: 1px solid var(--border2)">
         <div>
-          <p class="text-sm font-bold tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-mono)">{macro.name}</p>
+          <div class="flex items-center gap-2">
+            {#if getMacroColor(macro)}
+              <div class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style="background: {getMacroColor(macro)}; box-shadow: 0 0 6px {getMacroColor(macro)}"
+                title="Color tracking: {getMacroColor(macro)}"></div>
+            {:else}
+              <div class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style="background: var(--border2)"
+                title="No color data"></div>
+            {/if}
+            <p class="text-sm font-bold tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-mono)">{macro.name}</p>
+          </div>
           <p class="text-[10px] mt-1" style="color: var(--muted); font-family: var(--font-mono)">{macro.eventCount} EVENTS · {fmt(macro.duration)}</p>
         </div>
         <button on:click={() => dispatch('select', null)}
@@ -231,6 +262,44 @@
                   class="w-7 h-7 text-sm font-bold" style="color: var(--muted); font-family: var(--font-mono)"
                   on:mouseenter={(e) => e.currentTarget.style.color = 'var(--accent3)'}
                   on:mouseleave={(e) => e.currentTarget.style.color = 'var(--muted)'}>+</button>
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Random Delay -->
+        <div class="px-5 py-3" style="border-bottom: 1px solid var(--border)">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-[11px] font-bold tracking-widest uppercase" style="color: var(--text); font-family: var(--font-mono)">RANDOM DELAY</p>
+              <p class="text-[9px] mt-0.5" style="color: var(--muted); font-family: var(--font-mono)">ADDS RANDOM PAUSE BETWEEN CLICKS — MORE HUMAN-LIKE</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" bind:checked={randomDelay} class="w-3.5 h-3.5 cursor-pointer" style="accent-color: var(--accent3)"/>
+              <span class="text-[10px] font-bold" style="color: {randomDelay ? 'var(--accent3)' : 'var(--muted)'}; font-family: var(--font-mono)">{randomDelay ? 'ON' : 'OFF'}</span>
+            </label>
+          </div>
+          {#if randomDelay}
+            <div class="mt-3 flex items-center gap-2">
+              <span class="text-[10px]" style="color: var(--muted); font-family: var(--font-mono)">MIN</span>
+              <div class="flex items-center" style="border: 1px solid var(--border)">
+                <button on:click={() => randomDelayMin = Math.max(0, randomDelayMin - 25)}
+                  class="w-7 h-7 text-sm font-bold"
+                  style="color: var(--muted); font-family: var(--font-mono)">-</button>
+                <span class="w-14 text-center text-sm font-black" style="color: var(--accent3); font-family: var(--font-display)">{randomDelayMin}ms</span>
+                <button on:click={() => randomDelayMin = Math.min(randomDelayMax, randomDelayMin + 25)}
+                  class="w-7 h-7 text-sm font-bold"
+                  style="color: var(--muted); font-family: var(--font-mono)">+</button>
+              </div>
+              <span class="text-[10px]" style="color: var(--muted); font-family: var(--font-mono)">MAX</span>
+              <div class="flex items-center" style="border: 1px solid var(--border)">
+                <button on:click={() => randomDelayMax = Math.max(randomDelayMin, randomDelayMax - 25)}
+                  class="w-7 h-7 text-sm font-bold"
+                  style="color: var(--muted); font-family: var(--font-mono)">-</button>
+                <span class="w-14 text-center text-sm font-black" style="color: var(--accent3); font-family: var(--font-display)">{randomDelayMax}ms</span>
+                <button on:click={() => randomDelayMax = randomDelayMax + 25}
+                  class="w-7 h-7 text-sm font-bold"
+                  style="color: var(--muted); font-family: var(--font-mono)">+</button>
               </div>
             </div>
           {/if}

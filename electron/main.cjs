@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron')
+const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron')
 const path = require('path')
 const Store = require('electron-store')
 
@@ -126,27 +126,20 @@ function setupUiohookHotkeys() {
     const btn = e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'
     const event = { type: 'mousedown', button: btn, x: e.x, y: e.y, timestamp: Date.now() - recordingStartTime }
 
-    recordedEvents.push(event)
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
-
-    // Capture color synchronously — take screenshot and read pixel immediately
+    // Capture color BEFORE pushing event so it's always attached
     if (screenshot && Jimp) {
       try {
-        // Reuse screenshot if taken within last 500ms (avoid double capture on fast clicks)
-        let img
-        if (recordingScreenshot && recordingScreenshot.age > Date.now() - 500) {
-          img = recordingScreenshot.img
-        } else {
-          const imgBuffer = await screenshot({ format: 'png' })
-          img = await JimpRead(imgBuffer)
-          recordingScreenshot = { img, age: Date.now() }
-        }
-        const hex = img.getPixelColor(e.x, e.y)
-        const { r, g, b } = Jimp.intToRGBA(hex)
+        const imgBuffer = await screenshot({ format: 'png' })
+        const img = await JimpRead(imgBuffer)
+        const pixelHex = img.getPixelColor(e.x, e.y)
+        const { r, g, b } = Jimp.intToRGBA(pixelHex)
         event.color = { r, g, b, hex: `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}` }
         console.log('Color captured:', event.color.hex, 'at', e.x, e.y)
       } catch(err) { console.warn('Color capture failed:', err.message) }
     }
+
+    recordedEvents.push(event)
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('recording-event', event)
   })
 
   uIOhookInstance.on('mouseup', (e) => {
@@ -210,6 +203,42 @@ async function findColorOnScreen(targetR, targetG, targetB, tolerance = 20) {
     return bestMatch
   } catch (e) { return null }
 }
+
+// Pick color from screen — countdown then captures pixel under mouse
+ipcMain.handle('pick-color-from-screen', async () => {
+  // Send countdown ticks to renderer so UI can show "3... 2... 1..."
+  if (mainWindow) mainWindow.restore()
+  for (let i = 3; i >= 1; i--) {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('color-pick-countdown', i)
+    await new Promise(r => setTimeout(r, 1000))
+  }
+  if (!mainWindow.isDestroyed()) mainWindow.webContents.send('color-pick-countdown', 0)
+
+  // Minimize so we can see the screen cleanly, then capture
+  if (mainWindow) mainWindow.minimize()
+  await new Promise(r => setTimeout(r, 300))
+
+  try {
+    const pos = screen.getCursorScreenPoint()
+    const imgBuffer = await screenshot({ format: 'png' })
+    const img = await JimpRead(imgBuffer)
+    const { width: imgW } = img.bitmap
+    const { width: screenW } = screen.getPrimaryDisplay().bounds
+    const scale = imgW / screenW
+    const sx = Math.round(pos.x * scale)
+    const sy = Math.round(pos.y * scale)
+    const pixelHex = img.getPixelColor(sx, sy)
+    const { r, g, b } = Jimp.intToRGBA(pixelHex)
+    const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('')
+    if (mainWindow) mainWindow.restore()
+    console.log('Screen color picked:', hex, 'at', pos.x, pos.y)
+    return { r, g, b, hex, x: pos.x, y: pos.y }
+  } catch(err) {
+    console.warn('Color pick failed:', err.message)
+    if (mainWindow) mainWindow.restore()
+    return null
+  }
+})
 
 ipcMain.handle('get-pixel-under-mouse', async () => {
   if (!nutjs || !screenshot || !Jimp) return null
@@ -301,7 +330,7 @@ const keyNameToNutKey = (keyName) => {
   return map[keyName] || null
 }
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance }) => {
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
@@ -390,7 +419,12 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
       if (!isPlaying || playbackId !== myId) break
       const event = processedEvents[i]
       const prevTimestamp = i === 0 ? event.timestamp : processedEvents[i-1].timestamp
-      const delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
+      let delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
+      // Add random human-like jitter per event
+      if (randomDelay && i > 0) {
+        const jitter = Math.random() * ((randomDelayMax || 200) - (randomDelay || 0)) + (randomDelay || 0)
+        delay += jitter
+      }
       const ok = await waitChunked(Math.max(0, delay))
       if (!ok) break
       try {
@@ -471,6 +505,26 @@ ipcMain.handle('stop-playback', async () => {
   return { success: true }
 })
 
+// ─── Script Storage ───────────────────────────────────────────────────────────
+ipcMain.handle('save-script', async (_, script) => {
+  const scripts = store.get('scripts', [])
+  const existing = scripts.findIndex(s => s.id === script.id)
+  if (existing >= 0) scripts[existing] = script
+  else scripts.push(script)
+  store.set('scripts', scripts)
+  return { success: true }
+})
+ipcMain.handle('load-scripts', async () => store.get('scripts', []))
+ipcMain.handle('delete-script', async (_, id) => {
+  store.set('scripts', store.get('scripts', []).filter(s => s.id !== id))
+  return { success: true }
+})
+
+// ─── Color Scan (for scripts) ─────────────────────────────────────────────────
+ipcMain.handle('scan-for-color', async (_, { r, g, b, tolerance }) => {
+  return findColorOnScreen(r, g, b, tolerance)
+})
+
 // ─── Macro Storage ────────────────────────────────────────────────────────────
 ipcMain.handle('save-macro', async (_, macro) => {
   const macros = store.get('macros', [])
@@ -484,6 +538,40 @@ ipcMain.handle('load-macros', async () => store.get('macros', []))
 ipcMain.handle('delete-macro', async (_, id) => {
   store.set('macros', store.get('macros', []).filter(m => m.id !== id))
   return { success: true }
+})
+
+// ─── Export / Import ─────────────────────────────────────────────────────────
+const { dialog } = require('electron')
+const fs = require('fs')
+
+ipcMain.handle('export-macro', async (_, macro) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Macro',
+    defaultPath: `${macro.name}.json`,
+    filters: [{ name: 'MacroLoop Macro', extensions: ['json'] }]
+  })
+  if (canceled || !filePath) return { success: false }
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(macro, null, 2))
+    return { success: true }
+  } catch (e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('import-macro', async () => {
+  const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Macro',
+    filters: [{ name: 'MacroLoop Macro', extensions: ['json'] }],
+    properties: ['openFile', 'multiSelections']
+  })
+  if (canceled || !filePaths.length) return { success: false, macros: [] }
+  try {
+    const macros = filePaths.map(fp => {
+      const data = JSON.parse(fs.readFileSync(fp, 'utf8'))
+      // Ensure fresh ID on import so it doesn't overwrite existing
+      return { ...data, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }
+    })
+    return { success: true, macros }
+  } catch (e) { return { success: false, error: e.message, macros: [] } }
 })
 
 // ─── Window Controls ──────────────────────────────────────────────────────────

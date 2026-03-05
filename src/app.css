@@ -112,6 +112,101 @@
   --scanlines: rgba(0,0,0,0);
 }
 
+
+/* ── RETRO THEMES ────────────────────────────────────────── */
+
+/* Windows 95/98 */
+.theme-win95 {
+  --bg: #c0c0c0;
+  --bg2: #d4d0c8;
+  --bg3: #ffffff;
+  --border: #808080;
+  --border2: #000080;
+  --text: #000000;
+  --muted: #444444;
+  --accent: #000080;
+  --accent2: #800000;
+  --accent3: #008080;
+  --glow: none;
+  --glow2: none;
+  --scroll: #808080;
+  --font-display: 'Arial', sans-serif;
+  --font-mono: 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0);
+  --bevel-light: #ffffff;
+  --bevel-dark: #808080;
+  --bevel-darker: #404040;
+  --titlebar: #000080;
+  --titlebar-text: #ffffff;
+}
+
+/* Mac OS 9 Platinum */
+.theme-macos9 {
+  --bg: #aaaaaa;
+  --bg2: #cccccc;
+  --bg3: #ffffff;
+  --border: #888888;
+  --border2: #333333;
+  --text: #000000;
+  --muted: #555555;
+  --accent: #333399;
+  --accent2: #993333;
+  --accent3: #336633;
+  --glow: none;
+  --glow2: none;
+  --scroll: #999999;
+  --font-display: 'Geneva', 'Arial', sans-serif;
+  --font-mono: 'Monaco', 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0);
+  --bevel-light: #eeeeee;
+  --bevel-dark: #777777;
+  --bevel-darker: #333333;
+  --titlebar: linear-gradient(to bottom, #aaaaee, #6666aa);
+  --titlebar-text: #ffffff;
+}
+
+/* MS-DOS Amber CRT */
+.theme-dos {
+  --bg: #1a0e00;
+  --bg2: #241400;
+  --bg3: #2e1a00;
+  --border: #7a4a00;
+  --border2: #cc8800;
+  --text: #ffaa00;
+  --muted: #7a4a00;
+  --accent: #ffcc44;
+  --accent2: #ff6600;
+  --accent3: #ffee88;
+  --glow: 0 0 12px rgba(255,170,0,0.6);
+  --glow2: 0 0 12px rgba(255,102,0,0.4);
+  --scroll: #7a4a00;
+  --font-display: 'VT323', monospace;
+  --font-mono: 'VT323', monospace;
+  --scanlines: rgba(0,0,0,0.25);
+}
+
+/* Windows XP Luna */
+.theme-winxp {
+  --bg: #3a6ea5;
+  --bg2: #ecebe4;
+  --bg3: #ffffff;
+  --border: #9db5d7;
+  --border2: #316ac5;
+  --text: #000000;
+  --muted: #555555;
+  --accent: #316ac5;
+  --accent2: #cc3333;
+  --accent3: #2d8c00;
+  --glow: 0 2px 8px rgba(49,106,197,0.4);
+  --glow2: 0 2px 8px rgba(204,51,51,0.3);
+  --scroll: #9db5d7;
+  --font-display: 'Trebuchet MS', 'Arial', sans-serif;
+  --font-mono: 'Courier New', monospace;
+  --scanlines: rgba(0,0,0,0);
+  --titlebar: linear-gradient(to bottom, #4d90d5 0%, #2169c0 90%, #1a5aad 100%);
+  --titlebar-text: #ffffff;
+}
+
 /* ── GLOBAL STYLES ───────────────────────────────────────── */
 body {
   background: var(--bg);
@@ -135,4 +230,80 @@ body::after {
   );
   pointer-events: none;
   z-index: 9999;
+}
+
+/* ── RETRO THEME SPECIAL STYLES ─────────────────────────── */
+
+/* Win95 + MacOS9: beveled raised button effect */
+.theme-win95 button,
+.theme-macos9 button {
+  border-top: 2px solid var(--bevel-light) !important;
+  border-left: 2px solid var(--bevel-light) !important;
+  border-right: 2px solid var(--bevel-dark) !important;
+  border-bottom: 2px solid var(--bevel-dark) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.theme-win95 button:active,
+.theme-macos9 button:active {
+  border-top: 2px solid var(--bevel-dark) !important;
+  border-left: 2px solid var(--bevel-dark) !important;
+  border-right: 2px solid var(--bevel-light) !important;
+  border-bottom: 2px solid var(--bevel-light) !important;
+}
+
+/* Win95: titlebar stripe pattern */
+.theme-win95 [style*="-webkit-app-region: drag"],
+.theme-winxp [style*="-webkit-app-region: drag"] {
+  background: var(--titlebar) !important;
+  color: var(--titlebar-text) !important;
+}
+
+/* Win95: classic inset inputs */
+.theme-win95 input,
+.theme-win95 select,
+.theme-macos9 input,
+.theme-macos9 select {
+  border-top: 2px solid var(--bevel-dark) !important;
+  border-left: 2px solid var(--bevel-dark) !important;
+  border-right: 2px solid var(--bevel-light) !important;
+  border-bottom: 2px solid var(--bevel-light) !important;
+  border-radius: 0 !important;
+}
+
+/* WinXP: gradient titlebar */
+.theme-winxp [style*="-webkit-app-region: drag"] {
+  background: var(--titlebar) !important;
+  color: var(--titlebar-text) !important;
+}
+
+/* WinXP: pill/rounded buttons */
+.theme-winxp button {
+  border-radius: 3px !important;
+}
+
+/* DOS: bigger chunky font */
+.theme-dos * {
+  letter-spacing: 0.05em;
+}
+
+/* Scrollbars for retro themes */
+.theme-win95 ::-webkit-scrollbar,
+.theme-macos9 ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+.theme-win95 ::-webkit-scrollbar-thumb,
+.theme-macos9 ::-webkit-scrollbar-thumb {
+  background: var(--bg);
+  border-top: 2px solid var(--bevel-light);
+  border-left: 2px solid var(--bevel-light);
+  border-right: 2px solid var(--bevel-dark);
+  border-bottom: 2px solid var(--bevel-dark);
+  border-radius: 0;
+}
+.theme-win95 ::-webkit-scrollbar-track,
+.theme-macos9 ::-webkit-scrollbar-track {
+  background: var(--border);
 }

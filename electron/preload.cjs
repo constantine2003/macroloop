@@ -1,6 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// Helper — clears old listeners before adding new one so they never stack
 function on(channel, cb) {
   ipcRenderer.removeAllListeners(channel)
   ipcRenderer.on(channel, (_, ...args) => cb(...args))
@@ -17,6 +16,14 @@ contextBridge.exposeInMainWorld('electron', {
   setHotkeys:          (h)     => ipcRenderer.invoke('set-hotkeys', h),
   getHotkeys:          ()      => ipcRenderer.invoke('get-hotkeys'),
   getPixelUnderMouse:  ()      => ipcRenderer.invoke('get-pixel-under-mouse'),
+  exportMacro:         (macro) => ipcRenderer.invoke('export-macro', macro),
+  importMacro:         ()      => ipcRenderer.invoke('import-macro'),
+  saveScript:          (s)     => ipcRenderer.invoke('save-script', s),
+  loadScripts:         ()      => ipcRenderer.invoke('load-scripts'),
+  deleteScript:        (id)    => ipcRenderer.invoke('delete-script', id),
+  scanForColor:        (opts)  => ipcRenderer.invoke('scan-for-color', opts),
+  pickColorFromScreen: ()      => ipcRenderer.invoke('pick-color-from-screen'),
+  onColorPickCountdown: (cb) => on('color-pick-countdown', cb),
 
   onHotkey:            (cb) => on('hotkey',            cb),
   onRecordingEvent:    (cb) => on('recording-event',   cb),
