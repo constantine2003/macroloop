@@ -325,7 +325,7 @@
   {:else}
     <div class="flex flex-col gap-3">
       {#each scripts as script}
-        <div class="flex items-center justify-between p-4 transition-all"
+        <article class="flex items-center justify-between p-4 transition-all"
           style="background: var(--bg2); border: 1px solid var(--border)"
           on:mouseenter={(e) => e.currentTarget.style.borderColor='var(--border2)'}
           on:mouseleave={(e) => e.currentTarget.style.borderColor='var(--border)'}>
@@ -367,7 +367,7 @@
               ✕
             </button>
           </div>
-        </div>
+        </article>
       {/each}
     </div>
   {/if}
