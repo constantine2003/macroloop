@@ -359,34 +359,49 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
 
     if (colorTracking) {
       mainWindow.webContents.send('playback-status', 'SCANNING...')
-      // Debug: log all events and their color data
-      console.log('Total events:', currentEvents.length)
-      currentEvents.forEach((e, i) => {
-        if (e.type === 'mousedown' || e.type === 'click') {
-          console.log(`Event ${i} type=${e.type} color=`, e.color || 'NONE')
-        }
-      })
-      const firstColorClick = currentEvents.find(e => (e.type === 'mousedown' || e.type === 'click') && e.color)
-      console.log('firstColorClick:', firstColorClick ? firstColorClick.color : 'NOT FOUND')
-      if (firstColorClick) {
-        let found = null
-        let attempts = 0
-        while (!found && isPlaying && playbackId === myId && attempts < 15) {
-          found = await findColorOnScreen(firstColorClick.color.r, firstColorClick.color.g, firstColorClick.color.b, colorTolerance || 25)
-          if (!found) { await new Promise(r => setTimeout(r, 300)); attempts++ }
-        }
-        if (found) {
-          const offsetX = found.x - firstColorClick.x
-          const offsetY = found.y - firstColorClick.y
-          if (Math.abs(offsetX) > 2 || Math.abs(offsetY) > 2) {
-            currentEvents = currentEvents.map(e => {
-              if (e.type === 'mousemove' || e.type === 'mousedown' || e.type === 'mouseup' || e.type === 'click') {
-                return { ...e, x: e.x + offsetX, y: e.y + offsetY }
-              }
-              return e
-            })
+
+      // Per-click color tracking — each click with a color finds its OWN position
+      // independently so buttons that move to different spots are all handled
+      const resolvedClicks = new Map() // event index -> { x, y }
+
+      for (let i = 0; i < currentEvents.length; i++) {
+        const e = currentEvents[i]
+        if ((e.type === 'mousedown' || e.type === 'click') && e.color) {
+          let found = null
+          let attempts = 0
+          while (!found && isPlaying && playbackId === myId && attempts < 10) {
+            found = await findColorOnScreen(e.color.r, e.color.g, e.color.b, colorTolerance || 25)
+            if (!found) { await new Promise(r => setTimeout(r, 200)); attempts++ }
+          }
+          if (found) {
+            console.log(`Click ${i} color ${e.color.hex} found at ${found.x},${found.y} (was ${e.x},${e.y})`)
+            resolvedClicks.set(i, found)
+          } else {
+            console.log(`Click ${i} color ${e.color.hex} NOT found — using original position`)
           }
         }
+      }
+
+      // Apply per-click resolved positions
+      if (resolvedClicks.size > 0) {
+        currentEvents = currentEvents.map((e, i) => {
+          if (resolvedClicks.has(i)) {
+            const pos = resolvedClicks.get(i)
+            // Find the matching mouseup and shift it too
+            return { ...e, x: pos.x, y: pos.y }
+          }
+          // Shift mouseup to match its paired mousedown
+          if (e.type === 'mouseup') {
+            // Find previous mousedown for this button
+            for (let j = i - 1; j >= 0; j--) {
+              if (currentEvents[j].type === 'mousedown' && currentEvents[j].button === e.button && resolvedClicks.has(j)) {
+                const pos = resolvedClicks.get(j)
+                return { ...e, x: pos.x, y: pos.y }
+              }
+            }
+          }
+          return e
+        })
       }
     }
 
@@ -506,6 +521,36 @@ ipcMain.handle('stop-playback', async () => {
 })
 
 // ─── Script Storage ───────────────────────────────────────────────────────────
+// ─── Script Export / Import ───────────────────────────────────────────────────
+ipcMain.handle('export-script', async (_, script) => {
+  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Script',
+    defaultPath: `${script.name}.json`,
+    filters: [{ name: 'MacroLoop Script', extensions: ['json'] }]
+  })
+  if (canceled || !filePath) return { success: false }
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(script, null, 2))
+    return { success: true }
+  } catch(e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('import-script', async () => {
+  const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Script',
+    filters: [{ name: 'MacroLoop Script', extensions: ['json'] }],
+    properties: ['openFile', 'multiSelections']
+  })
+  if (canceled || !filePaths.length) return { success: false, scripts: [] }
+  try {
+    const scripts = filePaths.map(fp => {
+      const data = JSON.parse(fs.readFileSync(fp, 'utf8'))
+      return { ...data, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }
+    })
+    return { success: true, scripts }
+  } catch(e) { return { success: false, error: e.message, scripts: [] } }
+})
+
 ipcMain.handle('save-script', async (_, script) => {
   const scripts = store.get('scripts', [])
   const existing = scripts.findIndex(s => s.id === script.id)
@@ -518,6 +563,16 @@ ipcMain.handle('load-scripts', async () => store.get('scripts', []))
 ipcMain.handle('delete-script', async (_, id) => {
   store.set('scripts', store.get('scripts', []).filter(s => s.id !== id))
   return { success: true }
+})
+
+// ─── Click At (for scripts) ──────────────────────────────────────────────────
+ipcMain.handle('click-at', async (_, { x, y }) => {
+  if (!nutjs) return { success: false }
+  try {
+    await nutjs.mouse.setPosition({ x, y })
+    await nutjs.mouse.leftClick()
+    return { success: true }
+  } catch(e) { return { success: false, error: e.message } }
 })
 
 // ─── Color Scan (for scripts) ─────────────────────────────────────────────────

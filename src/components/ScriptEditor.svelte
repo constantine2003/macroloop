@@ -48,6 +48,21 @@
     await loadScripts()
   }
 
+  async function exportScript(script) {
+    if (window.electron) await window.electron.exportScript(script)
+  }
+
+  async function importScript() {
+    if (!window.electron) return
+    const result = await window.electron.importScript()
+    if (result.success && result.scripts.length) {
+      for (const s of result.scripts) {
+        await window.electron.saveScript(s)
+      }
+      await loadScripts()
+    }
+  }
+
   // ── Editor helpers ───────────────────────────────────────────────────────────
   function newScript() {
     currentScript = null
@@ -67,7 +82,7 @@
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2)
     const defaults = {
       'run-macro': { macroId: null, macroName: '' },
-      'if-color':  { color: '#00ff00', tolerance: 30, foundStep: 'next', notFoundStep: 'next' },
+      'if-color':  { color: '#00ff00', tolerance: 30, foundStep: 'next', notFoundStep: 'next', clickOnFound: false },
       'wait':      { seconds: 2 },
       'goto':      { targetStep: 1 },
       'repeat':    { times: 3, fromStep: 1 },
@@ -166,7 +181,12 @@
           found = !!(await window.electron.scanForColor({ r, g, b, tolerance: step.tolerance }))
         }
         if (found) {
-          log(`Step ${stepNum}: Color FOUND → ${step.foundStep === 'next' ? 'next step' : 'step ' + step.foundStep}`, 'success')
+          if (step.clickOnFound && found.x !== undefined) {
+            log(`Step ${stepNum}: Color FOUND — clicking at ${found.x}, ${found.y}`, 'success')
+            if (window.electron) await window.electron.clickAt({ x: found.x, y: found.y })
+          } else {
+            log(`Step ${stepNum}: Color FOUND → ${step.foundStep === 'next' ? 'next step' : 'step ' + step.foundStep}`, 'success')
+          }
           currentStepIdx = step.foundStep === 'next' ? currentStepIdx + 1 : parseInt(step.foundStep) - 1
         } else {
           log(`Step ${stepNum}: Color NOT found → ${step.notFoundStep === 'next' ? 'next step' : 'step ' + step.notFoundStep}`, 'warn')
@@ -263,13 +283,22 @@
       ◀ BACK
     </button>
     <h1 class="text-lg font-black tracking-widest uppercase" style="color: var(--accent); font-family: var(--font-display); text-shadow: var(--glow)">⬡ SCRIPTS</h1>
-    <button on:click={newScript}
-      class="text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
-      style="color: var(--accent); font-family: var(--font-mono); border: 1px solid var(--accent)"
-      on:mouseenter={(e) => { e.currentTarget.style.background='var(--accent)'; e.currentTarget.style.color='var(--bg)' }}
-      on:mouseleave={(e) => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--accent)' }}>
-      + NEW
-    </button>
+    <div class="flex gap-2">
+      <button on:click={importScript}
+        class="text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
+        style="color: var(--muted); font-family: var(--font-mono); border: 1px solid var(--border)"
+        on:mouseenter={(e) => { e.currentTarget.style.color='var(--accent3)'; e.currentTarget.style.borderColor='var(--accent3)' }}
+        on:mouseleave={(e) => { e.currentTarget.style.color='var(--muted)'; e.currentTarget.style.borderColor='var(--border)' }}>
+        ↓ IMPORT
+      </button>
+      <button on:click={newScript}
+        class="text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 transition-all"
+        style="color: var(--accent); font-family: var(--font-mono); border: 1px solid var(--accent)"
+        on:mouseenter={(e) => { e.currentTarget.style.background='var(--accent)'; e.currentTarget.style.color='var(--bg)' }}
+        on:mouseleave={(e) => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--accent)' }}>
+        + NEW
+      </button>
+    </div>
   </div>
 
   <!-- How it works hint -->
@@ -322,6 +351,13 @@
               on:mouseenter={(e) => { e.currentTarget.style.color='var(--accent3)'; e.currentTarget.style.borderColor='var(--accent3)' }}
               on:mouseleave={(e) => { e.currentTarget.style.color='var(--muted)'; e.currentTarget.style.borderColor='var(--border)' }}>
               EDIT
+            </button>
+            <button on:click={() => exportScript(script)}
+              class="px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-all"
+              style="color: var(--muted); font-family: var(--font-mono); border: 1px solid var(--border)"
+              on:mouseenter={(e) => { e.currentTarget.style.color='var(--accent3)'; e.currentTarget.style.borderColor='var(--accent3)' }}
+              on:mouseleave={(e) => { e.currentTarget.style.color='var(--muted)'; e.currentTarget.style.borderColor='var(--border)' }}>
+              ↑ EXPORT
             </button>
             <button on:click={() => deleteScript(script.id)}
               class="px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-all"
@@ -439,6 +475,17 @@
                   class="w-16 px-2 py-1 text-[10px] font-bold text-center outline-none"
                   style="background: var(--bg3); color: var(--accent2); font-family: var(--font-mono); border: 1px solid var(--border)"
                   placeholder="next"/>
+              </div>
+              <div class="flex items-center gap-2 mt-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" bind:checked={step.clickOnFound}
+                    on:change={() => steps = [...steps]}
+                    class="w-3.5 h-3.5 cursor-pointer" style="accent-color: var(--accent2)"/>
+                  <span class="text-[10px] font-bold tracking-widest uppercase"
+                    style="color: {step.clickOnFound ? 'var(--accent2)' : 'var(--muted)'}; font-family: var(--font-mono)">
+                    CLICK ON COLOR WHEN FOUND
+                  </span>
+                </label>
               </div>
               <p class="text-[9px]" style="color: var(--muted); font-family: var(--font-mono)">Type a step number (e.g. 3) or "next" to continue normally.</p>
 

@@ -19,9 +19,12 @@ contextBridge.exposeInMainWorld('electron', {
   exportMacro:         (macro) => ipcRenderer.invoke('export-macro', macro),
   importMacro:         ()      => ipcRenderer.invoke('import-macro'),
   saveScript:          (s)     => ipcRenderer.invoke('save-script', s),
+  exportScript:        (s)     => ipcRenderer.invoke('export-script', s),
+  importScript:        ()      => ipcRenderer.invoke('import-script'),
   loadScripts:         ()      => ipcRenderer.invoke('load-scripts'),
   deleteScript:        (id)    => ipcRenderer.invoke('delete-script', id),
   scanForColor:        (opts)  => ipcRenderer.invoke('scan-for-color', opts),
+  clickAt:             (pos)   => ipcRenderer.invoke('click-at', pos),
   pickColorFromScreen: ()      => ipcRenderer.invoke('pick-color-from-screen'),
   onColorPickCountdown: (cb) => on('color-pick-countdown', cb),
 
