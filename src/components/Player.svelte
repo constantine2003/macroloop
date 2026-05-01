@@ -24,6 +24,9 @@
   // Smooth movement
   let smoothMovement = false
 
+  // Fast playback auto-optimizations
+  let fastPlayback = true
+
   // Random delay per click
   let randomDelay = false
   let randomDelayMin = 0
@@ -56,6 +59,7 @@
       randomDelay: randomDelay ? randomDelayMin : 0,
       randomDelayMax: randomDelay ? randomDelayMax : 0,
       smoothMovement,
+      fastPlayback,
     }
 
     if (window.electron) {
@@ -319,6 +323,20 @@
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={smoothMovement} class="w-3.5 h-3.5 cursor-pointer" style="accent-color: var(--accent)"/>
               <span class="text-[10px] font-bold" style="color: {smoothMovement ? 'var(--accent)' : 'var(--muted)'}; font-family: var(--font-mono)">{smoothMovement ? 'ON' : 'OFF'}</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Fast Playback -->
+        <div class="px-5 py-3" style="border-bottom: 1px solid var(--border)">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-[11px] font-bold tracking-widest uppercase" style="color: var(--text); font-family: var(--font-mono)">FAST PLAYBACK</p>
+              <p class="text-[9px] mt-0.5" style="color: var(--muted); font-family: var(--font-mono)">AUTO-DISABLES SMOOTH + RANDOM DELAY ON VERY DENSE MACROS</p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" bind:checked={fastPlayback} class="w-3.5 h-3.5 cursor-pointer" style="accent-color: var(--accent2)"/>
+              <span class="text-[10px] font-bold" style="color: {fastPlayback ? 'var(--accent2)' : 'var(--muted)'}; font-family: var(--font-mono)">{fastPlayback ? 'ON' : 'OFF'}</span>
             </label>
           </div>
         </div>

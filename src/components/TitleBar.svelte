@@ -41,9 +41,11 @@
     align-items: center;
     gap: 2px;
     padding-right: 8px;
+    -webkit-app-region: no-drag;
   }
 
   .ctrl {
+    -webkit-app-region: no-drag;
     width: 28px;
     height: 28px;
     border-radius: 6px;
