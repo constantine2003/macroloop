@@ -163,7 +163,9 @@
             events: macro.events, loops: 1, speed: 1,
             cooldown: 'none', cooldownMin: 0, cooldownMax: 0,
             colorTracking: false, colorTolerance: 25,
-            randomDelay: 0, randomDelayMax: 0
+            randomDelay: 0, randomDelayMax: 0,
+            smoothMovement: false,
+            fastPlayback: true
           })
           await waitForPlayback()
         }

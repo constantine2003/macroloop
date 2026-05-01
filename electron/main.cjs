@@ -297,22 +297,40 @@ ipcMain.handle('stop-recording', async () => {
   const duration = Date.now() - (recordingStartTime || Date.now())
   recordingStartTime = null
 
-  // Consolidate: remove all mousemove events EXCEPT the last one before each click
+  // Consolidate: keep drag moves (between mousedown/mouseup), keep last move before click, drop idle moves
   const consolidated = []
+  let mouseHeld = false
+  let dragMoves = []
+
+  const flushDragMoves = () => {
+    if (dragMoves.length === 0) return
+    dragMoves.forEach((move, idx) => {
+      const isEndpoint = idx === 0 || idx === dragMoves.length - 1
+      if (isEndpoint || idx % 3 === 0) consolidated.push(move)
+    })
+    dragMoves = []
+  }
   for (let i = 0; i < recordedEvents.length; i++) {
     const e = recordedEvents[i]
+    if (e.type === 'mousedown') { mouseHeld = true; dragMoves = []; consolidated.push(e); continue }
+    if (e.type === 'mouseup')   { flushDragMoves(); mouseHeld = false; consolidated.push(e); continue }
     if (e.type === 'mousemove') {
-      // Only keep this mousemove if the next non-mousemove event is a click
-      const nextAction = recordedEvents.slice(i + 1).find(ev => ev.type !== 'mousemove')
-      if (nextAction && (nextAction.type === 'mousedown' || nextAction.type === 'mouseup')) {
-        consolidated.push(e) // keep last move before click
+      if (mouseHeld) {
+        // Inside a drag — keep every Nth move to smooth but not overwhelm
+        dragMoves.push(e)
+      } else {
+        // Outside drag — only keep last move before a click
+        const nextAction = recordedEvents.slice(i + 1).find(ev => ev.type !== 'mousemove')
+        if (nextAction && (nextAction.type === 'mousedown' || nextAction.type === 'mouseup')) {
+          consolidated.push(e)
+        }
       }
-      // otherwise drop it
-    } else {
-      consolidated.push(e)
+      continue
     }
+    consolidated.push(e)
   }
   console.log(`Consolidated: ${recordedEvents.length} → ${consolidated.length} events`)
+  flushDragMoves()
   return { events: consolidated, duration }
 })
 
@@ -347,7 +365,48 @@ const keyNameToNutKey = (keyName) => {
   return map[keyName] || null
 }
 
-ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax, smoothMovement }) => {
+const mouseButtonToNutButton = (button) => {
+  if (!nutjs) return null
+  if (button === 'left') return nutjs.Button.LEFT
+  if (button === 'right') return nutjs.Button.RIGHT
+  return nutjs.Button.MIDDLE || nutjs.Button.LEFT
+}
+
+const moveMouseTo = async (point, smoothMovement, isPlayingCheck) => {
+  if (!smoothMovement) {
+    await nutjs.mouse.setPosition({ x: point.x, y: point.y })
+    return
+  }
+
+  const cur = await nutjs.mouse.getPosition()
+  const steps = Math.max(4, Math.round(Math.hypot(point.x - cur.x, point.y - cur.y) / 20))
+  for (let s = 1; s <= steps; s++) {
+    if (!isPlayingCheck()) break
+    const t = s / steps
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+    await nutjs.mouse.setPosition({
+      x: Math.round(cur.x + (point.x - cur.x) * ease),
+      y: Math.round(cur.y + (point.y - cur.y) * ease)
+    })
+    await new Promise(r => setTimeout(r, 8))
+  }
+}
+
+const findMatchingMouseup = (events, startIdx, button) => {
+  for (let i = startIdx + 1; i < events.length; i++) {
+    const e = events[i]
+    if (e.type === 'mousemove') continue
+    if (e.type === 'mouseup' && e.button === button) return i
+    return -1
+  }
+  return -1
+}
+
+const hasMouseMoveBetween = (events, startIdx, endIdx) => {
+  return endIdx > startIdx && events.slice(startIdx + 1, endIdx).some(e => e.type === 'mousemove')
+}
+
+ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, cooldownMin, cooldownMax, colorTracking, colorTolerance, randomDelay, randomDelayMax, smoothMovement, fastPlayback }) => {
   if (!nutjs) return { success: false, error: 'nut-js not available' }
   if (!events || events.length === 0) return { success: false, error: 'No events to play' }
 
@@ -361,6 +420,24 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
   const myId = playbackId
   let loopCount = 0
   const maxLoops = loops === 0 ? Infinity : loops
+
+  const eventSpanMs = (() => {
+    const firstTs = events?.[0]?.timestamp ?? 0
+    const lastTs = events?.[events.length - 1]?.timestamp ?? firstTs
+    return Math.max(0, lastTs - firstTs)
+  })()
+  const eventsPerSecond = eventSpanMs > 0 ? (events.length / (eventSpanMs / 1000)) : events.length
+  const shouldFastPlayback = !!fastPlayback && (events.length >= 2000 || eventsPerSecond >= 120)
+
+  let effectiveSmoothMovement = smoothMovement
+  let effectiveRandomDelay = randomDelay
+  let effectiveRandomDelayMax = randomDelayMax
+
+  if (shouldFastPlayback) {
+    effectiveSmoothMovement = false
+    effectiveRandomDelay = 0
+    effectiveRandomDelayMax = 0
+  }
 
   const waitChunked = async (ms) => {
     const chunks = Math.ceil(ms / 16)
@@ -429,23 +506,13 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
     if (lastClickIdx) currentEvents = currentEvents.slice(0, lastClickIdx.i + 1)
 
     // Pair mousedown+mouseup into atomic clicks
-    const processedEvents = []
-    for (let i = 0; i < currentEvents.length; i++) {
-      const e = currentEvents[i]
-      if (e.type === 'mousedown') {
-        const upIdx = currentEvents.findIndex((u, j) => j > i && u.type === 'mouseup' && u.button === e.button)
-        if (upIdx !== -1) {
-          const up = currentEvents[upIdx]
-          const holdDuration = up.timestamp - e.timestamp
-          processedEvents.push({ ...e, type: 'click', holdDuration, upIdx })
-          continue
-        }
-      }
-      const alreadyPaired = processedEvents.some(p => p.type === 'click' && p.upIdx === i)
-      if (!alreadyPaired) processedEvents.push(e)
-    }
+    // Keep events as-is — mousedown, mousemove (drag), mouseup are handled separately
+    // Collapsing into 'click' broke drag so we play back raw events
+    const processedEvents = currentEvents
 
     const heldKeys = new Set()
+    let heldButton = null  // Track which mouse button is currently pressed (for drags)
+    let lastEventTime = Date.now()
 
     for (let i = 0; i < processedEvents.length; i++) {
       if (!isPlaying || playbackId !== myId) break
@@ -453,57 +520,59 @@ ipcMain.handle('start-playback', async (_, { events, loops, speed, cooldown, coo
       const prevTimestamp = i === 0 ? event.timestamp : processedEvents[i-1].timestamp
       let delay = i === 0 ? 0 : (event.timestamp - prevTimestamp) / speed
       // Add random human-like jitter per event
-      if (randomDelay && i > 0) {
-        const jitter = Math.random() * ((randomDelayMax || 200) - (randomDelay || 0)) + (randomDelay || 0)
+      if (effectiveRandomDelay && i > 0) {
+        const jitter = Math.random() * ((effectiveRandomDelayMax || 200) - (effectiveRandomDelay || 0)) + (effectiveRandomDelay || 0)
         delay += jitter
       }
-      const ok = await waitChunked(Math.max(0, delay))
+      // Subtract time already elapsed since last event (execution overhead)
+      const elapsed = Date.now() - lastEventTime
+      const adjustedDelay = Math.max(0, delay - elapsed)
+      const ok = await waitChunked(adjustedDelay)
       if (!ok) break
+      lastEventTime = Date.now()
       try {
-        if (event.type === 'mousemove') {
-          if (smoothMovement) {
-            // Smooth curved movement using bezier interpolation
-            const cur = await nutjs.mouse.getPosition()
-            const steps = Math.max(8, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
-            for (let s = 1; s <= steps; s++) {
-              if (!isPlaying || playbackId !== myId) break
-              const t = s / steps
-              // Ease in-out curve
-              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-              // Slight arc via control point offset
-              const cpx = (cur.x + event.x) / 2 + (event.y - cur.y) * 0.15
-              const cpy = (cur.y + event.y) / 2 - (event.x - cur.x) * 0.15
-              const bx = Math.round((1-ease)*(1-ease)*cur.x + 2*(1-ease)*ease*cpx + ease*ease*event.x)
-              const by = Math.round((1-ease)*(1-ease)*cur.y + 2*(1-ease)*ease*cpy + ease*ease*event.y)
-              await nutjs.mouse.setPosition({ x: bx, y: by })
-              await new Promise(r => setTimeout(r, 8))
-            }
-          } else {
+        if (event.type === 'mousedown') {
+          const btn = mouseButtonToNutButton(event.button)
+          const upIdx = findMatchingMouseup(processedEvents, i, event.button)
+          const isSimpleClick = upIdx !== -1 && !hasMouseMoveBetween(processedEvents, i, upIdx)
+
+          if (isSimpleClick) {
+            const upEvent = processedEvents[upIdx]
+            const holdDuration = Math.max(20, upEvent.timestamp - event.timestamp)
+            await moveMouseTo(event, effectiveSmoothMovement, () => isPlaying && playbackId === myId)
+            await nutjs.mouse.pressButton(btn)
+            await new Promise(r => setTimeout(r, Math.min(holdDuration, 250)))
+            await nutjs.mouse.releaseButton(btn)
+            i = upIdx
+            lastEventTime = Date.now()
+            continue
+          }
+
+          // Drag start: press at the down position and release on mouseup.
+          // For drags, always use instant movement (no smooth) to maintain timing accuracy
+          await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          await nutjs.mouse.pressButton(btn)
+          heldButton = btn
+        } else if (event.type === 'mousemove') {
+          // For drags (when button is held), use instant movement for responsiveness
+          if (heldButton) {
             await nutjs.mouse.setPosition({ x: event.x, y: event.y })
+          } else {
+            await moveMouseTo(event, effectiveSmoothMovement, () => isPlaying && playbackId === myId)
           }
         } else if (event.type === 'click') {
-          if (smoothMovement) {
-            const cur = await nutjs.mouse.getPosition()
-            const steps = Math.max(6, Math.round(Math.hypot(event.x - cur.x, event.y - cur.y) / 20))
-            for (let s = 1; s <= steps; s++) {
-              if (!isPlaying || playbackId !== myId) break
-              const t = s / steps
-              const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-              await nutjs.mouse.setPosition({
-                x: Math.round(cur.x + (event.x - cur.x) * ease),
-                y: Math.round(cur.y + (event.y - cur.y) * ease)
-              })
-              await new Promise(r => setTimeout(r, 8))
-            }
-          } else {
-            await nutjs.mouse.setPosition({ x: event.x, y: event.y })
-          }
+          await moveMouseTo(event, effectiveSmoothMovement, () => isPlaying && playbackId === myId)
           await new Promise(r => setTimeout(r, 15))
-          const btn = event.button === 'left' ? nutjs.Button.LEFT : nutjs.Button.RIGHT
-          await nutjs.mouse.pressButton(btn)
-          const hold = Math.min(Math.max(event.holdDuration / speed, 30), 300)
-          await new Promise(r => setTimeout(r, hold))
-          await nutjs.mouse.releaseButton(btn)
+          await nutjs.mouse.click(mouseButtonToNutButton(event.button))
+        } else if (event.type === 'mouseup') {
+          await moveMouseTo(event, effectiveSmoothMovement, () => isPlaying && playbackId === myId)
+          // Release the button that was held (either from mousedown or from heldButton)
+          if (heldButton) {
+            await nutjs.mouse.releaseButton(heldButton)
+            heldButton = null
+          } else {
+            await nutjs.mouse.releaseButton(mouseButtonToNutButton(event.button))
+          }
           await new Promise(r => setTimeout(r, 15))
         } else if (event.type === 'keydown') {
           const nutKey = keyNameToNutKey(event.key)
