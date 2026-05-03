@@ -1,3 +1,4 @@
+//fix
 const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron')
 const path = require('path')
 const Store = require('electron-store')
